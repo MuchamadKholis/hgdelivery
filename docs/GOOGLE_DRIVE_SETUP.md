@@ -85,6 +85,6 @@ wrangler.cmd secret put BOOTSTRAP_ADMIN_PASSWORD
 wrangler.cmd secret delete BOOTSTRAP_ADMIN_PASSWORD
 ```
 
-The current hardening migration adds hashed login-rate-limit keys. Login is limited to five attempts per email/IP pair per 15-minute window. State-changing API requests must include the exact same-origin `Origin` header. Apply all pending migrations before deploying this branch.
+The current hardening migration adds hashed login-rate-limit keys. Login is limited to five attempts per email/IP pair and 30 attempts per IP per 15-minute window. State-changing API requests must include the exact same-origin `Origin` header. Apply all pending migrations before deploying this branch.
 
 Do not use real customer data during initial testing. The app still needs broader end-to-end security and operational testing before production.
