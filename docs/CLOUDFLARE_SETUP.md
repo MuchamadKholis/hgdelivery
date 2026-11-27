@@ -40,7 +40,19 @@ wrangler.cmd secret put GOOGLE_REFRESH_TOKEN
 
 Never paste secret values into chat, Git, frontend JavaScript, or screenshots. The Drive folder is created automatically on the first proof upload and remains private.
 
-## 5. First administrator
+## 5. Free route estimate (optional)
+
+HGDelivery can use the OpenRouteService free Standard API for road-distance estimates. Create a free account and API key at [OpenRouteService](https://openrouteservice.org/plans/). The free plan has daily/minute quotas; check the provider's current plan limits before use. No Google Maps billing is needed for this route estimate.
+
+Store the key only as a Worker secret:
+
+```powershell
+wrangler.cmd secret put OPENROUTESERVICE_API_KEY
+```
+
+The current integration uses the `driving-car` profile for road routing. It is an estimate, not a motorcycle-specific route, and it does not calculate or finalize order fares. Do not use the estimate as a final customer charge without operational validation. The app displays OpenRouteService/OpenStreetMap attribution. API keys must never be placed in frontend code.
+
+## 6. First administrator
 
 Before the first deployment used for a controlled setup, set a long, unique bootstrap secret:
 
@@ -56,7 +68,7 @@ wrangler.cmd secret delete BOOTSTRAP_ADMIN_PASSWORD
 
 The bootstrap secret and admin password must be different. Never send either value in chat.
 
-## 6. Validate and deploy
+## 7. Validate and deploy
 
 First validate the bundle without deploying:
 
