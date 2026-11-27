@@ -3,7 +3,7 @@
 window.HG_CONFIG = {
   SPREADSHEET_ID: "1RfPzyNFgaT755P5LFV0lwESXNCIk_u3XexX1pFNLIHA",
   DRIVE_FOLDER_ID: "101gXN2Ks7BVSs9J8diiwYHJcsAURKt05",
-  APPS_SCRIPT_URL: "https://script.google.com/macros/s/AKfycbyT3xOC8_5HnejNkL8brFm41qjcSHERIda0oemVAH_i55HKVCNU6l6BxA5U4PeWR56S/exec",
+  APPS_SCRIPT_URL: "https://script.google.com/macros/s/AKfycbw49sPGPbRwyRGg1ekiBhnxthRgkzntZHh0wzh6kI4GQ3c2PL_HyVB8nyNC-lSVwUw0/exec",
   DEFAULT_ADMIN: {
     id: "ADM-001",
     name: "Admin Healthy Go",
