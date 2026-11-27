@@ -90,7 +90,7 @@ if(r.method==="POST"&&p==="/api/auth/login"){
  const email=b.email.trim().toLowerCase();if(email.length>254||b.password.length>1024)return json({error:"Data login tidak valid"},400);
  const ip=r.headers.get("CF-Connecting-IP")||"unknown";
  if(!(await loginAllowed(env,email,ip)))return json({error:"Terlalu banyak percobaan login. Coba lagi dalam 15 menit."},429,{"retry-after":"900"});
- const a=await env.DB.prepare("SELECT * FROM users WHERE email=? AND active=1").bind(email).first();
+ const a=await env.DB.prepare("SELECT * FROM users WHERE (lower(email)=? OR phone=?) AND active=1").bind(email,b.email.trim()).first();
  if(!a||!(await validPass(b.password,a.password_hash)))return json({error:"Email atau password salah"},401);
  await clearLoginLimit(env,email,ip);
  const t=hex(crypto.getRandomValues(new Uint8Array(32))),exp=new Date(Date.now()+604800000).toISOString();
