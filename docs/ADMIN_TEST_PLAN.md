@@ -40,3 +40,18 @@ Run only in a disposable test environment with non-production accounts and order
 4. Confirm a non-admin cannot read or change pricing.
 5. Confirm each update is recorded in the audit log.
 6. Do not treat the configured rates as a customer quote yet: automatic route-distance calculation and order-price enforcement are not implemented.
+
+## Dashboard summary
+1. Sign in as ADMIN and confirm six metric cards load.
+2. Create a test order and refresh the page; confirm total orders increases.
+3. Move a test order through statuses and confirm waiting, active, and completed counts reflect the status groups.
+4. Confirm a non-admin cannot access the admin dashboard endpoint.
+
+## Status transition restrictions
+1. Confirm NEW_ORDER can move to VERIFIED or CANCEL only.
+2. Confirm VERIFIED can move to PROCESS, PENDING_PAYMENT, CANCEL, or RESCHEDULE.
+3. Confirm PROCESS can move to ON_TRIP, CANCEL, or RESCHEDULE.
+4. Confirm ON_TRIP can move to TRIP_COMPLETED or CANCEL.
+5. Confirm TRIP_COMPLETED can move to SUCCESS only.
+6. Confirm SUCCESS and CANCEL are terminal and cannot be changed.
+7. Confirm completed_at and cancelled_at are cleared or set correctly when statuses change.
