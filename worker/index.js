@@ -126,7 +126,7 @@ if(p==="/api/admin/users"&&r.method==="POST"){
  await env.DB.prepare("INSERT INTO audit_logs(id,actor_id,action,entity_type,entity_id,detail) VALUES(?,?,'USER_CREATED','USER',?,?)").bind(uid(),user.id,id,b.role).run();
  return json({ok:true,user:{id,name:b.name.trim(),email,role:b.role,active:1}},201);
 }
-const activeMatch=p.match(/^\/api\/admin\/users\/([\\w-]+)\/active$/);
+const activeMatch=p.match(/^\/api\/admin\/users\/([\w-]+)\/active$/);
 if(activeMatch&&r.method==="PATCH"){
  if(user.role!=="ADMIN")return json({error:"Hanya admin"},403);
  const b=await body(r),target=await env.DB.prepare("SELECT id,role,active FROM users WHERE id=?").bind(activeMatch[1]).first();
@@ -142,7 +142,7 @@ if(activeMatch&&r.method==="PATCH"){
  await env.DB.prepare("INSERT INTO audit_logs(id,actor_id,action,entity_type,entity_id,detail) VALUES(?,?,?,?,?,?)").bind(uid(),user.id,b.active?"USER_ACTIVATED":"USER_DEACTIVATED","USER",target.id,target.role).run();
  return json({ok:true});
 }
-const assignMatch=p.match(/^\/api\/orders\/([\\w-]+)\/assign$/);
+const assignMatch=p.match(/^\/api\/orders\/([\w-]+)\/assign$/);
 if(assignMatch&&r.method==="PATCH"){
  if(user.role!=="ADMIN")return json({error:"Hanya admin"},403);
  const b=await body(r),courier=await env.DB.prepare("SELECT id FROM users WHERE id=? AND role='COURIER' AND active=1").bind(b?.courierId).first();
