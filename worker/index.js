@@ -56,7 +56,8 @@ async function uploadDriveProof(env,file,orderId){
   const sent=await fetch(session,{method:"PUT",headers:{"content-type":file.type},body:file.stream()});
   const meta=await sent.json();if(!sent.ok||!meta.id)throw new Error("Upload foto ke Google Drive gagal");return meta;
 }
-\nasync function api(r,env){const u=new URL(r.url),p=u.pathname;
+
+async function api(r,env){const u=new URL(r.url),p=u.pathname;
 if(!["GET","HEAD","OPTIONS"].includes(r.method)){
   const origin=r.headers.get("Origin");
   if(!origin||origin!==u.origin)return json({error:"Permintaan lintas situs ditolak"},403);
