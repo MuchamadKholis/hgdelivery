@@ -1,97 +1,83 @@
 # Cloudflare setup — HGDelivery
 
-This repository is prepared for Cloudflare Workers + D1 + R2. **No Cloudflare resource has been created yet**: resource creation requires signing in to the owner's Cloudflare account. These steps create the resources in that account.
+HGDelivery uses Cloudflare Workers for the API and static frontend, D1 for relational data, and a private Google Drive folder for delivery proof photos. **R2 is not required.**
 
 ## 1. Requirements
 
-- A Cloudflare account with Workers and D1 access.
-- Node.js LTS and npm on your computer.
-- From the repository root, install dependencies: `npm install`.
-- Authenticate Wrangler: `npx wrangler login` and approve the browser authorization.
+- Cloudflare account with Workers and D1 access.
+- Node.js LTS and npm.
+- Install dependencies from the repository root: `npm install`.
+- Authenticate Wrangler: `wrangler login` (on Windows PowerShell, use `wrangler.cmd login` if script execution is blocked).
 
-## 2. Create database and private file bucket
+## 2. Cloudflare resources
 
-Run these commands once:
+Create the D1 database once:
 
-```bash
-npx wrangler d1 create hgdelivery
-npx wrangler r2 bucket create hgdelivery-private
+```powershell
+wrangler.cmd d1 create hgdelivery
 ```
 
-The D1 command prints a `database_id`. Copy it into `wrangler.jsonc` in the `database_id` field. Keep the R2 bucket name exactly `hgdelivery-private`. Do not make this bucket public; files must be served through authenticated Worker routes.
+Copy the returned database ID into `wrangler.jsonc`. The Worker name is `hgdelivery`; the D1 binding is `DB`. No R2 bucket is used.
 
-## 3. Apply schema
+## 3. Apply database migrations
 
-First test locally:
+Migrations are versioned in `database/migrations`. Never edit a migration that has already been applied remotely; add a new numbered migration instead.
 
-```bash
-npm run db:local
+```powershell
+wrangler.cmd d1 migrations apply hgdelivery --local
+wrangler.cmd d1 migrations apply hgdelivery --remote
 ```
 
-Then apply to the Cloudflare database:
+## 4. Configure Google Drive secrets
 
-```bash
-npm run db:remote
+Follow [Google Drive setup](GOOGLE_DRIVE_SETUP.md) to create OAuth credentials and obtain a refresh token. Store credentials only as Worker secrets:
+
+```powershell
+wrangler.cmd secret put GOOGLE_CLIENT_ID
+wrangler.cmd secret put GOOGLE_CLIENT_SECRET
+wrangler.cmd secret put GOOGLE_REFRESH_TOKEN
 ```
 
-Migrations are versioned in `database/migrations`; do not edit a migration that has already been applied remotely. Add a new numbered migration instead.
+Never paste secret values into chat, Git, frontend JavaScript, or screenshots. The Drive folder is created automatically on the first proof upload and remains private.
 
-## 4. Configure Worker secrets
+## 5. First administrator
 
-Generate a long random bootstrap password and set it as a Worker secret:
+Before the first deployment used for a controlled setup, set a long, unique bootstrap secret:
 
-```bash
-npx wrangler secret put BOOTSTRAP_ADMIN_PASSWORD
+```powershell
+wrangler.cmd secret put BOOTSTRAP_ADMIN_PASSWORD
 ```
 
-Also set an independent session signing secret for future token hardening:
+After deployment, open the login page, expand **Pengaturan awal: buat admin pertama**, and enter the bootstrap secret plus the admin account details. Use an admin password of at least 12 characters. Immediately remove the bootstrap secret after the admin is created:
 
-```bash
-npx wrangler secret put SESSION_SECRET
+```powershell
+wrangler.cmd secret delete BOOTSTRAP_ADMIN_PASSWORD
 ```
 
-Never put secrets in Git, `.dev.vars`, frontend JavaScript, or screenshots. The current starter bootstrap endpoint expects the one-time password in the request body. After creating the first admin, remove the bootstrap secret:
+The bootstrap secret and admin password must be different. Never send either value in chat.
 
-```bash
-npx wrangler secret delete BOOTSTRAP_ADMIN_PASSWORD
+## 6. Validate and deploy
+
+First validate the bundle without deploying:
+
+```powershell
+wrangler.cmd deploy --dry-run
 ```
 
-Do not expose the bootstrap endpoint publicly until rate limiting and origin/abuse protections are enabled.
+A successful dry run checks packaging and bindings only; it does not prove that the app works. Do not deploy until the current code review, pending migrations, authentication setup, and smoke-test plan are complete.
 
-## 5. Local development
+When explicitly approved for a controlled test deployment:
 
-Create a local-only `.dev.vars` file (it is ignored by Git):
-
-```dotenv
-BOOTSTRAP_ADMIN_PASSWORD=replace-with-a-long-random-local-only-value
-ENVIRONMENT=development
+```powershell
+wrangler.cmd deploy
 ```
 
-Then run:
+The GitHub Actions deployment workflow is configured for pushes to `main` and manual dispatch. Do not merge rebuild work into `main` as part of routine testing.
 
-```bash
-npm run dev
-```
+## 7. Privacy and production readiness
 
-## 6. Deploy
-
-After setting the production secrets and applying remote migrations:
-
-```bash
-npm run deploy
-```
-
-Wrangler will deploy the Worker and static assets. The first deploy creates the Worker endpoint; connect a custom domain only after smoke tests pass.
-
-## 7. Storage and privacy
-
-R2 is configured as a private bucket binding named `PROOFS`. The schema includes metadata for proof uploads. The current API does not yet expose a complete upload/download route; do not upload real customer identity documents or sensitive images until authenticated upload, content validation, size limits, authorization checks, retention, and signed/streamed download endpoints have been implemented and tested.
-
-## Resource checklist
-
-- [ ] D1 database `hgdelivery` created and its ID added to `wrangler.jsonc`.
-- [ ] R2 bucket `hgdelivery-private` created (private).
-- [ ] Local and remote migrations applied.
-- [ ] Worker secrets set in Cloudflare.
-- [ ] Bootstrap admin created once, then bootstrap secret deleted.
-- [ ] Production smoke tests completed before inviting customers or couriers.
+- Proof photos are stored in a private Google Drive folder; D1 stores metadata and Drive file IDs only.
+- Proof upload is restricted to the assigned courier or admin; download is restricted to the admin, order customer, or assigned courier.
+- Login rate limits and same-origin checks for state-changing API requests are implemented.
+- These controls still require runtime and end-to-end testing. User management, courier assignment, pricing enforcement, payment workflows, retention/deletion rules, and broader operational authorization remain incomplete.
+- Do not onboard real customers or upload real customer documents until the complete workflow has been tested and reviewed.
