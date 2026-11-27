@@ -32,3 +32,11 @@ Run only in a disposable test environment with non-production accounts and order
 4. Admin verifies the delivery and moves it to SUCCESS.
 5. Confirm another courier cannot update the order, and a courier cannot set administrative statuses.
 6. Confirm each change appears in order events and audit logs.
+
+## Pricing configuration
+1. Sign in as ADMIN and open Tarif.
+2. Save active rates for HG Ride Motor, HG Ride Mobil, and HG Send.
+3. Confirm the active values are displayed after refresh.
+4. Confirm a non-admin cannot read or change pricing.
+5. Confirm each update is recorded in the audit log.
+6. Do not treat the configured rates as a customer quote yet: automatic route-distance calculation and order-price enforcement are not implemented.
