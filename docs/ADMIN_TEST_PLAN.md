@@ -55,3 +55,23 @@ Run only in a disposable test environment with non-production accounts and order
 5. Confirm TRIP_COMPLETED can move to SUCCESS only.
 6. Confirm SUCCESS and CANCEL are terminal and cannot be changed.
 7. Confirm completed_at and cancelled_at are cleared or set correctly when statuses change.
+
+## Order proof photos
+1. Assign a test order to a test COURIER.
+2. Sign in as the assigned courier and upload a small JPG, PNG, or WebP proof photo.
+3. Confirm the photo appears in the order's proof list and opens only for the customer, assigned courier, or admin.
+4. Confirm another courier and an unrelated customer receive an authorization error.
+5. Try a file with a renamed extension or mismatched MIME type; expect rejection.
+6. Confirm uploads larger than 8 MB and unsupported formats are rejected.
+7. Confirm the upload creates an ORDER_PROOF_UPLOADED audit entry.
+8. Confirm an unassigned courier cannot upload a proof.
+
+## Manual payment recording
+1. Sign in as ADMIN and open an unpaid test order.
+2. Enter the amount actually received, choose CASH, BANK_TRANSFER, QRIS, or OTHER, and optionally enter a transaction reference.
+3. Confirm the order payment status becomes PAID and the payment record appears for the customer and admin.
+4. Confirm a non-admin cannot create payment records or read another customer's payment history.
+5. Attempt to record payment twice; the second attempt must be rejected.
+6. Confirm invalid amounts, methods, and oversized references are rejected.
+7. Confirm the PAYMENT_RECORDED audit entry exists.
+8. This is manual bookkeeping only: it does not collect money, verify bank transfers automatically, integrate a payment gateway, or calculate the amount due. Admin must verify the actual receipt before recording it.
