@@ -158,6 +158,25 @@ if(assignMatch&&r.method==="PATCH"){
 }
 if(p==="/api/orders"&&r.method==="GET"){let q=user.role==="ADMIN"?env.DB.prepare("SELECT * FROM orders ORDER BY created_at DESC LIMIT 200"):user.role==="COURIER"?env.DB.prepare("SELECT * FROM orders WHERE courier_id=? ORDER BY created_at DESC LIMIT 200").bind(user.id):env.DB.prepare("SELECT * FROM orders WHERE customer_id=? ORDER BY created_at DESC LIMIT 100").bind(user.id);const d=await q.all();return json({orders:d.results})}
 if(p==="/api/orders"&&r.method==="POST"){const b=await body(r);if(!b||!["RIDE","SEND"].includes(b.type)||![b.pickup_lat,b.pickup_lng,b.destination_lat,b.destination_lng].every(Number.isFinite)||!b.pickup_label||!b.destination_label)return json({error:"Data order dan lokasi belum lengkap"},400);const oid=uid(),code="HG-"+Date.now().toString(36).toUpperCase()+"-"+uid().slice(0,4).toUpperCase();await env.DB.prepare("INSERT INTO orders(id,order_code,type,customer_id,status,pickup_label,pickup_lat,pickup_lng,destination_label,destination_lat,destination_lng,vehicle,notes) VALUES(?,?,?,?,'NEW_ORDER',?,?,?,?,?,?,?,?)").bind(oid,code,b.type,user.id,b.pickup_label,b.pickup_lat,b.pickup_lng,b.destination_label,b.destination_lat,b.destination_lng,b.vehicle||null,b.notes||null).run();await env.DB.prepare("INSERT INTO order_events(id,order_id,actor_id,to_status,note) VALUES(?,?,?,'NEW_ORDER','Order dibuat')").bind(uid(),oid,user.id).run();return json({ok:true,order_code:code},201)}
-const m=p.match(/^\/api\/orders\/([\w-]+)\/status$/);if(m&&r.method==="PATCH"){if(user.role!=="ADMIN")return json({error:"Hanya admin"},403);const b=await body(r),allowed=["VERIFIED","PROCESS","ON_TRIP","TRIP_COMPLETED","SUCCESS","RESCHEDULE","CANCEL","PENDING_PAYMENT"];if(!allowed.includes(b?.status))return json({error:"Status tidak valid"},400);const old=await env.DB.prepare("SELECT status FROM orders WHERE id=?").bind(m[1]).first();if(!old)return json({error:"Order tidak ditemukan"},404);await env.DB.batch([env.DB.prepare("UPDATE orders SET status=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(b.status,m[1]),env.DB.prepare("INSERT INTO order_events(id,order_id,actor_id,from_status,to_status,note) VALUES(?,?,?,?,?,?)").bind(uid(),m[1],user.id,old.status,b.status,b.note||null)]);return json({ok:true})}
+const m=p.match(/^\/api\/orders\/([\w-]+)\/status$/);
+if(m&&r.method==="PATCH"){
+ const b=await body(r),adminStatuses=["VERIFIED","PROCESS","ON_TRIP","TRIP_COMPLETED","SUCCESS","RESCHEDULE","CANCEL","PENDING_PAYMENT"],courierStatuses=["ON_TRIP","TRIP_COMPLETED"];
+ if(user.role!=="ADMIN"&&user.role!=="COURIER")return json({error:"Tidak berhak mengubah status"},403);
+ if(user.role==="ADMIN"&&!adminStatuses.includes(b?.status))return json({error:"Status tidak valid"},400);
+ if(user.role==="COURIER"&&!courierStatuses.includes(b?.status))return json({error:"Kurir hanya dapat memperbarui status perjalanan"},403);
+ const old=await env.DB.prepare("SELECT status,courier_id FROM orders WHERE id=?").bind(m[1]).first();
+ if(!old)return json({error:"Order tidak ditemukan"},404);
+ if(user.role==="COURIER"&&old.courier_id!==user.id)return json({error:"Order ini bukan tugas Anda"},403);
+ if(user.role==="COURIER"&&old.status!=="PROCESS"&&!(old.status==="ON_TRIP"&&b.status==="TRIP_COMPLETED"))return json({error:"Status order belum memungkinkan diperbarui oleh kurir"},409);
+ if(user.role==="ADMIN"&&old.status==="SUCCESS")return json({error:"Order yang sudah selesai tidak dapat diubah"},409);
+ const completed=["TRIP_COMPLETED","SUCCESS"].includes(b.status)?",completed_at=CURRENT_TIMESTAMP":"";
+ const cancelled=b.status==="CANCEL"?",cancelled_at=CURRENT_TIMESTAMP":"";
+ await env.DB.batch([
+  env.DB.prepare("UPDATE orders SET status=?,updated_at=CURRENT_TIMESTAMP"+completed+cancelled+" WHERE id=?").bind(b.status,m[1]),
+  env.DB.prepare("INSERT INTO order_events(id,order_id,actor_id,from_status,to_status,note) VALUES(?,?,?,?,?,?)").bind(uid(),m[1],user.id,old.status,b.status,typeof b.note==="string"?b.note.slice(0,500):null),
+  env.DB.prepare("INSERT INTO audit_logs(id,actor_id,action,entity_type,entity_id,detail) VALUES(?,?,?,?,?,?)").bind(uid(),user.id,"ORDER_STATUS_CHANGED","ORDER",m[1],old.status+" -> "+b.status)
+ ]);
+ return json({ok:true});
+}
 return json({error:"Endpoint tidak ditemukan"},404)}
 export default{async fetch(r,env){const u=new URL(r.url);if(u.pathname.startsWith("/api/")){try{return await api(r,env)}catch(e){return json({error:"Kesalahan server",detail:env.ENVIRONMENT==="development"?String(e):undefined},500)}}return env.ASSETS.fetch(r)}};
