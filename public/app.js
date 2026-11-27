@@ -137,4 +137,4 @@ async function loadPricing(){
 }
 $("#pricingForm").onsubmit=async e=>{e.preventDefault();const v=Object.fromEntries(new FormData(e.target));v.rate_per_km=Number(v.rate_per_km);v.minimum_price=Number(v.minimum_price);const msg=$("#pricingMessage");msg.textContent="";try{await api("/api/admin/pricing",{method:"POST",body:JSON.stringify(v)});msg.textContent="Tarif berhasil disimpan.";loadPricing()}catch(x){msg.textContent=x.message}};
 $("#refreshPricing").onclick=loadPricing;
-$("#refresh").onclick=loadOrders;$("#filterService").onchange=loadOrders;$("#filterStatus").onchange=loadOrders;(async()=>{try{const d=await api("/api/auth/me");start(d.user)}catch{}})();
+$("#refresh").onclick=loadOrders;$("#filterService").onchange=loadOrders;$("#filterStatus").onchange=loadOrders;setInterval(()=>{if(me&&document.visibilityState==="visible")loadOrders()},30000);(async()=>{try{const d=await api("/api/auth/me");start(d.user)}catch{}})();
