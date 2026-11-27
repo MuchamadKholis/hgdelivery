@@ -17,7 +17,7 @@ async function loadSummary(){
  try{
   const d=await api("/api/admin/summary"),root=$("#dashboardSummary");root.replaceChildren();
   const items=[["Pengguna aktif",d.users],["Kurir aktif",d.active_couriers],["Total order",d.orders],["Order berjalan",d.active_orders],["Selesai",d.completed],["Dibatalkan",d.cancelled]];
-  items.forEach(([label,value])=>{const el=document.createElement("article");el.className="order";const title=document.createElement("small");title.textContent=label;const number=document.createElement("h2");number.textContent=Number(value).toLocaleString("id-ID");el.append(title,number);root.append(el)});
+  items.forEach(([label,value])=>{const el=document.createElement("article");el.className="metric";const title=document.createElement("small");title.textContent=label;const number=document.createElement("strong");number.textContent=Number(value).toLocaleString("id-ID");el.append(title,number);root.append(el)});
  }catch(e){$("#dashboardSummary").textContent=e.message}
 }
 async function loadOrders(){
