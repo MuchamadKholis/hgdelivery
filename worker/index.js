@@ -117,6 +117,18 @@ if(p==="/api/admin/dashboard"&&r.method==="GET"){
  const d=await env.DB.prepare("SELECT (SELECT COUNT(*) FROM orders) total_orders,(SELECT COUNT(*) FROM orders WHERE status IN ('NEW_ORDER','VERIFIED','PENDING_PAYMENT')) waiting_orders,(SELECT COUNT(*) FROM orders WHERE status IN ('PROCESS','ON_TRIP','TRIP_COMPLETED','RESCHEDULE')) active_orders,(SELECT COUNT(*) FROM orders WHERE status='SUCCESS') completed_orders,(SELECT COUNT(*) FROM users WHERE role='COURIER' AND active=1) active_couriers,(SELECT COUNT(*) FROM users WHERE role='CUSTOMER' AND active=1) active_customers").first();
  return json({metrics:d});
 }
+if(p==="/api/admin/summary"&&r.method==="GET"){
+ if(user.role!=="ADMIN")return json({error:"Hanya admin"},403);
+ const [users,orders,activeOrders,completed,cancelled,couriers]=await Promise.all([
+  env.DB.prepare("SELECT COUNT(*) n FROM users WHERE active=1").first(),
+  env.DB.prepare("SELECT COUNT(*) n FROM orders").first(),
+  env.DB.prepare("SELECT COUNT(*) n FROM orders WHERE status IN ('NEW_ORDER','VERIFIED','PENDING_PAYMENT','PROCESS','ON_TRIP','RESCHEDULE')").first(),
+  env.DB.prepare("SELECT COUNT(*) n FROM orders WHERE status IN ('TRIP_COMPLETED','SUCCESS')").first(),
+  env.DB.prepare("SELECT COUNT(*) n FROM orders WHERE status='CANCEL'").first(),
+  env.DB.prepare("SELECT COUNT(*) n FROM users WHERE role='COURIER' AND active=1").first()
+ ]);
+ return json({users:users.n,orders:orders.n,active_orders:activeOrders.n,completed:completed.n,cancelled:cancelled.n,active_couriers:couriers.n});
+}
 if(p==="/api/admin/users"&&r.method==="GET"){
  if(user.role!=="ADMIN")return json({error:"Hanya admin"},403);
  const d=await env.DB.prepare("SELECT id,name,email,phone,role,active,created_at FROM users ORDER BY created_at DESC LIMIT 500").all();
