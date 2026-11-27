@@ -110,7 +110,7 @@ if(proofUploadParts.length===5&&proofUploadParts[1]==="api"&&proofUploadParts[2]
  ]);
  return json({ok:true,proof:{id:proofId,label,content_type:file.type,size_bytes:file.size,created_at:new Date().toISOString()}},201);
 }
-const orderProofsMatch=p.match(/^\/api\/orders\/([\\w-]+)\/proofs$/);
+const orderProofsMatch=p.match(/^\/api\/orders\/([\w-]+)\/proofs$/);
 if(orderProofsMatch&&r.method==="GET"){
  const order=await env.DB.prepare("SELECT id,customer_id,courier_id FROM orders WHERE id=?").bind(orderProofsMatch[1]).first();
  if(!order)return json({error:"Order tidak ditemukan"},404);
@@ -128,7 +128,7 @@ if(proofParts.length===4&&proofParts[1]==="api"&&proofParts[2]==="proofs"&&proof
  return new Response(file.body,{headers:{"content-type":proof.content_type,"content-length":String(proof.size_bytes),"cache-control":"private, no-store","x-content-type-options":"nosniff","content-disposition":"inline"}});
 }
 
-const orderPaymentsMatch=p.match(/^\/api\/orders\/([\\w-]+)\/payments$/);
+const orderPaymentsMatch=p.match(/^\/api\/orders\/([\w-]+)\/payments$/);
 if(orderPaymentsMatch&&r.method==="GET"){
  const order=await env.DB.prepare("SELECT id,customer_id FROM orders WHERE id=?").bind(orderPaymentsMatch[1]).first();
  if(!order)return json({error:"Order tidak ditemukan"},404);
