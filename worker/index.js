@@ -116,7 +116,7 @@ if(p==="/api/geocode/search"&&r.method==="GET"){
  let results=[];
  try{
   const photon=new URL("https://photon.komoot.io/api/");
-  photon.search=new URLSearchParams({q,lang:"id",limit:"10"}).toString();
+  photon.search=new URLSearchParams({q,lang:"id",limit:"10",lat:"-6.3000",lon:"106.8000"}).toString();
   const pr=await fetch(photon.toString(),{headers:{"Accept":"application/geo+json"}});
   if(pr.ok){const pd=await pr.json().catch(()=>null);results=(pd?.features||[]).map(f=>({lat:String(f.geometry.coordinates[1]),lon:String(f.geometry.coordinates[0]),display_name:[f.properties.name,f.properties.street,f.properties.district,f.properties.city||f.properties.county,f.properties.state,f.properties.country].filter(Boolean).filter((v,i,a)=>a.indexOf(v)===i).join(", "),source:"Photon"}))}
  }catch(e){console.error("PHOTON_GEOCODE_FAILED",String(e))}
@@ -292,7 +292,7 @@ if(p==="/api/admin/pricing"&&r.method==="POST"){
  ]);
  return json({ok:true,id},201);
 }
-if(p==="/api/orders"&&r.method==="GET"){let q=user.role==="ADMIN"?env.DB.prepare("SELECT * FROM orders ORDER BY created_at DESC LIMIT 200"):user.role==="COURIER"?env.DB.prepare("SELECT * FROM orders WHERE courier_id=? ORDER BY created_at DESC LIMIT 200").bind(user.id):env.DB.prepare("SELECT * FROM orders WHERE customer_id=? ORDER BY created_at DESC LIMIT 100").bind(user.id);const d=await q.all();return json({orders:d.results})}
+if(p==="/api/orders"&&r.method==="GET"){let q=user.role==="ADMIN"?env.DB.prepare("SELECT o.*,c.name AS courier_name,c.phone AS courier_phone FROM orders o LEFT JOIN users c ON c.id=o.courier_id ORDER BY o.created_at DESC LIMIT 200"):user.role==="COURIER"?env.DB.prepare("SELECT o.*,c.name AS courier_name,c.phone AS courier_phone FROM orders o LEFT JOIN users c ON c.id=o.courier_id WHERE o.courier_id=? ORDER BY o.created_at DESC LIMIT 200").bind(user.id):env.DB.prepare("SELECT o.*,c.name AS courier_name,c.phone AS courier_phone FROM orders o LEFT JOIN users c ON c.id=o.courier_id WHERE o.customer_id=? ORDER BY o.created_at DESC LIMIT 100").bind(user.id);const d=await q.all();return json({orders:d.results})}
 if(p==="/api/orders"&&r.method==="POST"){
  if(user.role!=="CUSTOMER"&&user.role!=="ADMIN")return json({error:"Hanya customer yang dapat membuat order"},403);
  const b=await body(r),coords=[b?.pickup_lat,b?.pickup_lng,b?.destination_lat,b?.destination_lng];
