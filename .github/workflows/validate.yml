@@ -3,7 +3,7 @@ on:
   pull_request:
     branches: [rebuild/cloudflare-v1]
   push:
-    branches: [hardening/security-v1]
+    branches: [hardening/security-v1, rebuild/cloudflare-v1]
 jobs:
   syntax:
     runs-on: ubuntu-latest
