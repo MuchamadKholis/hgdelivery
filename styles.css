@@ -105,23 +105,6 @@ body {
   flex-wrap: wrap;
 }
 
-.status-pill {
-  font-size: 0.75rem;
-  font-weight: 600;
-  padding: 4px 10px;
-  border-radius: 999px;
-}
-
-.status-local {
-  background: var(--amber-soft);
-  color: var(--amber);
-}
-
-.status-cloud {
-  background: var(--primary-soft);
-  color: var(--primary-dark);
-}
-
 .user-box {
   display: flex;
   align-items: center;
@@ -490,6 +473,7 @@ textarea:focus {
   border-radius: 10px;
   border: 1px solid var(--border);
   z-index: 1;
+  background: #e5e7eb;
 }
 
 /* FARE BANNER */
@@ -746,10 +730,6 @@ textarea:focus {
   overflow-y: auto;
 }
 
-.modal-lg {
-  max-width: 720px;
-}
-
 .modal-header {
   display: flex;
   justify-content: space-between;
@@ -790,13 +770,6 @@ textarea:focus {
   max-width: 100%;
   max-height: 260px;
   border-radius: 6px;
-}
-
-.code-box {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.78rem;
-  background: #111827;
-  color: #e5e7eb;
 }
 
 /* TOAST */

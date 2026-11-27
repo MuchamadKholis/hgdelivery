@@ -25,12 +25,6 @@
       </div>
 
       <div class="topbar-actions">
-        <span id="dbStatusBadge" class="status-pill status-local" title="Status Sinkronisasi Database">
-          Local Storage
-        </span>
-        <button type="button" id="btnOpenConfig" class="btn btn-outline btn-sm">
-          Konfigurasi Sheet/Drive
-        </button>
         <div id="userHeaderBox" class="user-box hidden">
           <span id="headerUserName" class="user-name"></span>
           <span id="headerUserRole" class="role-badge"></span>
@@ -311,7 +305,7 @@
                 <option value="Success">Success</option>
                 <option value="Cancel">Cancel</option>
               </select>
-              <button type="button" id="btnRefreshOrders" class="btn btn-outline btn-sm">Sinkronkan</button>
+              <button type="button" id="btnRefreshOrders" class="btn btn-outline btn-sm">Refresh</button>
             </div>
           </div>
 
@@ -425,37 +419,6 @@
           <button type="submit" class="btn btn-primary">Kirim & Set Trip Completed</button>
         </div>
       </form>
-    </div>
-  </div>
-
-  <!-- MODAL KONFIGURASI GOOGLE SHEETS & DRIVE -->
-  <div id="configModal" class="modal hidden">
-    <div class="modal-backdrop" data-close-modal="configModal"></div>
-    <div class="modal-content modal-lg">
-      <div class="modal-header">
-        <h3>Integrasi Google Sheets & Google Drive</h3>
-        <button type="button" class="btn-close" data-close-modal="configModal">&times;</button>
-      </div>
-      <div class="modal-body">
-        <div class="form-group">
-          <label for="scriptUrlInput">Google Apps Script Web App URL</label>
-          <div class="input-with-btn">
-            <input type="url" id="scriptUrlInput" placeholder="https://script.google.com/macros/s/.../exec" />
-            <button type="button" id="btnSaveScriptUrl" class="btn btn-primary btn-sm">Simpan & Tes</button>
-          </div>
-          <small class="muted">
-            Spreadsheet ID: <code>1RfPzyNFgaT755P5LFV0lwESXNCIk_u3XexX1pFNLIHA</code> |
-            Folder Drive Bukti Bayar ID: <code>101gXN2Ks7BVSs9J8diiwYHJcsAURKt05</code>
-          </small>
-        </div>
-        <div class="form-group mt-12">
-          <div class="card-header-flex">
-            <label>Kode Google Apps Script (<code>Code.gs</code>)</label>
-            <button type="button" id="btnCopyGasCode" class="btn btn-outline btn-sm">Salin Kode Apps Script</button>
-          </div>
-          <textarea id="gasCodePreview" class="code-box" rows="10" readonly></textarea>
-        </div>
-      </div>
     </div>
   </div>
 

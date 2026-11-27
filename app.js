@@ -3,8 +3,7 @@
   const STORAGE_KEYS = {
     ACCOUNTS: "hg_prod_accounts_v1",
     ORDERS: "hg_prod_orders_v1",
-    SESSION: "hg_prod_session_v1",
-    SCRIPT_URL: "hg_prod_script_url_v1"
+    SESSION: "hg_prod_session_v1"
   };
 
   let state = {
@@ -26,7 +25,7 @@
   let routeLine = null;
 
   function getScriptUrl() {
-    return localStorage.getItem(STORAGE_KEYS.SCRIPT_URL) || CFG.APPS_SCRIPT_URL || "";
+    return (CFG.APPS_SCRIPT_URL || "").trim();
   }
 
   function showToast(msg) {
@@ -84,20 +83,14 @@
       });
       return await res.json();
     } catch (err) {
-      console.warn("Cloud sync fallback to local:", err);
+      console.warn("Cloud sync error:", err);
       return null;
     }
   }
 
   async function syncFromCloud() {
     const url = getScriptUrl();
-    const badge = document.getElementById("dbStatusBadge");
-    if (!url) {
-      badge.textContent = "Local Storage";
-      badge.className = "status-pill status-local";
-      return;
-    }
-    badge.textContent = "Menyinkronkan...";
+    if (!url) return;
     const data = await apiCall({ action: "getAll" });
     if (data && data.ok) {
       if (Array.isArray(data.accounts) && data.accounts.length > 0) {
@@ -110,12 +103,7 @@
         state.orders = data.orders;
       }
       saveLocalData();
-      badge.textContent = "Google Sheets Aktif";
-      badge.className = "status-pill status-cloud";
       renderAll();
-    } else {
-      badge.textContent = "Offline / Local";
-      badge.className = "status-pill status-local";
     }
   }
 
@@ -259,7 +247,6 @@
     document.getElementById("tabRekap").classList.toggle("hidden", !isAdmin);
     document.getElementById("adminDistanceOverrideBox").classList.toggle("hidden", !isAdmin);
 
-    // Default nama, no HP, email pada form order
     document.getElementById("custNameInput").value = u.name || "";
     document.getElementById("custPhoneInput").value = u.phone || "";
     document.getElementById("custEmailInput").value = u.email || "";
@@ -296,8 +283,9 @@
   // ==================== MAP & ROUTING ====================
   function initMap() {
     map = L.map("map").setView([-6.2615, 106.7810], 11);
-    L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
-      attribution: "&copy; OpenStreetMap &copy; CARTO",
+
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: "&copy; OpenStreetMap contributors",
       maxZoom: 19
     }).addTo(map);
 
@@ -311,7 +299,6 @@
       }
     });
 
-    // Preset buttons
     const presetContainer = document.getElementById("presetList");
     CFG.PRESET_LOCATIONS.forEach(loc => {
       const chip = document.createElement("button");
@@ -478,7 +465,6 @@
   }
 
   function initOrderForm() {
-    // Default pickup datetime now + 15 mins
     const dt = new Date(Date.now() + 15 * 60000);
     dt.setMinutes(dt.getMinutes() - dt.getTimezoneOffset());
     document.getElementById("pickupDateTimeInput").value = dt.toISOString().slice(0, 16);
@@ -902,6 +888,12 @@
       showToast(`Order ${orderNo} selesai (Status: Trip Completed). Menunggu verifikasi Admin.`);
       renderAll();
     });
+
+    document.querySelectorAll("[data-close-modal]").forEach(el => {
+      el.addEventListener("click", () => {
+        document.getElementById(el.dataset.closeModal).classList.add("hidden");
+      });
+    });
   }
 
   // ==================== ADMIN MANAGE COURIERS ====================
@@ -1017,118 +1009,6 @@
     URL.revokeObjectURL(url);
   }
 
-  // ==================== CONFIG MODAL ====================
-  function initConfigModal() {
-    const gasTemplate = `const SPREADSHEET_ID = '${CFG.SPREADSHEET_ID}';
-const DRIVE_FOLDER_ID = '${CFG.DRIVE_FOLDER_ID}';
-
-function doGet(e) { return handleRequest(e); }
-function doPost(e) { return handleRequest(e); }
-
-function handleRequest(e) {
-  try {
-    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-    ensureSheets(ss);
-    const payload = e.postData && e.postData.contents ? JSON.parse(e.postData.contents) : (e.parameter || {});
-    const action = payload.action || 'getAll';
-
-    if (action === 'getAll') {
-      return jsonOut({
-        ok: true,
-        accounts: readSheetObjects(ss.getSheetByName('Accounts')),
-        orders: readSheetObjects(ss.getSheetByName('Orders'))
-      });
-    }
-    if (action === 'upsertAccount') {
-      upsertRow(ss.getSheetByName('Accounts'), 'id', payload.account);
-      return jsonOut({ ok: true });
-    }
-    if (action === 'upsertOrder') {
-      upsertRow(ss.getSheetByName('Orders'), 'orderNumber', payload.order);
-      return jsonOut({ ok: true });
-    }
-    if (action === 'uploadProof') {
-      const folder = DriveApp.getFolderById(DRIVE_FOLDER_ID);
-      const base64Data = payload.base64.split(',')[1] || payload.base64;
-      const blob = Utilities.newBlob(Utilities.base64Decode(base64Data), payload.mimeType || 'image/jpeg', payload.fileName);
-      const file = folder.createFile(blob);
-      file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-      return jsonOut({ ok: true, fileUrl: file.getUrl() });
-    }
-    return jsonOut({ ok: false, error: 'Unknown action' });
-  } catch (err) {
-    return jsonOut({ ok: false, error: String(err) });
-  }
-}
-
-function ensureSheets(ss) {
-  initSheetIfEmpty(ss, 'Accounts', ['id','name','email','phone','password','role','vehicle','createdAt']);
-  initSheetIfEmpty(ss, 'Orders', ['orderNumber','serviceType','createdAt','createdById','customerName','customerPhone','customerEmail','pickupDateTime','pickupAddress','pickupLat','pickupLng','dropoffAddress','dropoffLat','dropoffLng','distanceKm','vehicleType','passengerCount','itemType','itemWeight','recipientName','recipientPhone','serviceSpeed','paymentMethod','notes','companyShare','courierShare','totalPayment','status','courierId','courierName','courierPhone','proofUrl','paymentApproval','updatedAt']);
-}
-
-function initSheetIfEmpty(ss, name, headers) {
-  let sh = ss.getSheetByName(name);
-  if (!sh) sh = ss.insertSheet(name);
-  if (sh.getLastRow() === 0) sh.appendRow(headers);
-}
-
-function readSheetObjects(sh) {
-  const values = sh.getDataRange().getValues();
-  if (values.length <= 1) return [];
-  const headers = values[0];
-  return values.slice(1).map(row => {
-    const obj = {};
-    headers.forEach((h, i) => { obj[h] = row[i]; });
-    return obj;
-  });
-}
-
-function upsertRow(sh, keyField, dataObj) {
-  const values = sh.getDataRange().getValues();
-  const headers = values[0];
-  const keyIdx = headers.indexOf(keyField);
-  const rowData = headers.map(h => dataObj[h] !== undefined ? dataObj[h] : '');
-  for (let r = 1; r < values.length; r++) {
-    if (String(values[r][keyIdx]) === String(dataObj[keyField])) {
-      sh.getRange(r + 1, 1, 1, headers.length).setValues([rowData]);
-      return;
-    }
-  }
-  sh.appendRow(rowData);
-}
-
-function jsonOut(obj) {
-  return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
-}`;
-
-    document.getElementById("gasCodePreview").value = gasTemplate;
-    document.getElementById("scriptUrlInput").value = getScriptUrl();
-
-    document.getElementById("btnOpenConfig").addEventListener("click", () => {
-      document.getElementById("scriptUrlInput").value = getScriptUrl();
-      document.getElementById("configModal").classList.remove("hidden");
-    });
-
-    document.getElementById("btnSaveScriptUrl").addEventListener("click", async () => {
-      const val = document.getElementById("scriptUrlInput").value.trim();
-      localStorage.setItem(STORAGE_KEYS.SCRIPT_URL, val);
-      document.getElementById("configModal").classList.add("hidden");
-      await syncFromCloud();
-      showToast("URL Web App disimpan.");
-    });
-
-    document.getElementById("btnCopyGasCode").addEventListener("click", async () => {
-      await navigator.clipboard.writeText(gasTemplate);
-      showToast("Kode Apps Script berhasil disalin.");
-    });
-
-    document.querySelectorAll("[data-close-modal]").forEach(el => {
-      el.addEventListener("click", () => {
-        document.getElementById(el.dataset.closeModal).classList.add("hidden");
-      });
-    });
-  }
-
   function renderAll() {
     recalculateFare();
     renderOrders();
@@ -1146,7 +1026,6 @@ function jsonOut(obj) {
     initOrderForm();
     initCompleteTripModal();
     initCourierManagement();
-    initConfigModal();
 
     document.getElementById("filterService").addEventListener("change", renderOrders);
     document.getElementById("filterStatus").addEventListener("change", renderOrders);
