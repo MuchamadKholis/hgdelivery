@@ -24,3 +24,11 @@ Run only in a disposable test environment with non-production accounts and order
 - Syntax checks do not replace these runtime tests.
 - Do not use real customer data, real delivery addresses, or real proof photos during validation.
 - Verify all role boundaries and error cases before using the feature operationally.
+
+## Order status workflow
+1. Admin moves an assigned test order to PROCESS.
+2. The assigned courier signs in and moves it to ON_TRIP.
+3. The same courier moves it to TRIP_COMPLETED.
+4. Admin verifies the delivery and moves it to SUCCESS.
+5. Confirm another courier cannot update the order, and a courier cannot set administrative statuses.
+6. Confirm each change appears in order events and audit logs.
