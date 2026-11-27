@@ -174,7 +174,16 @@ if(p==="/api/admin/pricing"&&r.method==="POST"){
  return json({ok:true,id},201);
 }
 if(p==="/api/orders"&&r.method==="GET"){let q=user.role==="ADMIN"?env.DB.prepare("SELECT * FROM orders ORDER BY created_at DESC LIMIT 200"):user.role==="COURIER"?env.DB.prepare("SELECT * FROM orders WHERE courier_id=? ORDER BY created_at DESC LIMIT 200").bind(user.id):env.DB.prepare("SELECT * FROM orders WHERE customer_id=? ORDER BY created_at DESC LIMIT 100").bind(user.id);const d=await q.all();return json({orders:d.results})}
-if(p==="/api/orders"&&r.method==="POST"){const b=await body(r);if(!b||!["RIDE","SEND"].includes(b.type)||![b.pickup_lat,b.pickup_lng,b.destination_lat,b.destination_lng].every(Number.isFinite)||!b.pickup_label||!b.destination_label)return json({error:"Data order dan lokasi belum lengkap"},400);const oid=uid(),code="HG-"+Date.now().toString(36).toUpperCase()+"-"+uid().slice(0,4).toUpperCase();await env.DB.prepare("INSERT INTO orders(id,order_code,type,customer_id,status,pickup_label,pickup_lat,pickup_lng,destination_label,destination_lat,destination_lng,vehicle,notes) VALUES(?,?,?,?,'NEW_ORDER',?,?,?,?,?,?,?,?)").bind(oid,code,b.type,user.id,b.pickup_label,b.pickup_lat,b.pickup_lng,b.destination_label,b.destination_lat,b.destination_lng,b.vehicle||null,b.notes||null).run();await env.DB.prepare("INSERT INTO order_events(id,order_id,actor_id,to_status,note) VALUES(?,?,?,'NEW_ORDER','Order dibuat')").bind(uid(),oid,user.id).run();return json({ok:true,order_code:code},201)}
+if(p==="/api/orders"&&r.method==="POST"){
+ if(user.role!=="CUSTOMER"&&user.role!=="ADMIN")return json({error:"Hanya customer yang dapat membuat order"},403);
+ const b=await body(r);
+ const coords=[b?.pickup_lat,b?.pickup_lng,b?.destination_lat,b?.destination_lng];
+ if(!b||!["RIDE","SEND"].includes(b.type)||!coords.every(Number.isFinite)||Math.abs(b.pickup_lat)>90||Math.abs(b.destination_lat)>90||Math.abs(b.pickup_lng)>180||Math.abs(b.destination_lng)>180||typeof b.pickup_label!=="string"||typeof b.destination_label!=="string"||!b.pickup_label.trim()||!b.destination_label.trim()||b.pickup_label.length>500||b.destination_label.length>500)return json({error:"Data order dan lokasi belum lengkap atau tidak valid"},400);
+ const oid=uid(),code="HG-"+Date.now().toString(36).toUpperCase()+"-"+uid().slice(0,4).toUpperCase();
+ await env.DB.prepare("INSERT INTO orders(id,order_code,type,customer_id,status,pickup_label,pickup_lat,pickup_lng,destination_label,destination_lat,destination_lng,vehicle,notes) VALUES(?,?,?,?,'NEW_ORDER',?,?,?,?,?,?,?,?)").bind(oid,code,b.type,user.id,b.pickup_label.trim(),b.pickup_lat,b.pickup_lng,b.destination_label.trim(),b.destination_lat,b.destination_lng,["Motor","Mobil"].includes(b.vehicle)?b.vehicle:null,typeof b.notes==="string"?b.notes.slice(0,1000):null).run();
+ await env.DB.prepare("INSERT INTO order_events(id,order_id,actor_id,to_status,note) VALUES(?,?,?,'NEW_ORDER','Order dibuat')").bind(uid(),oid,user.id).run();
+ return json({ok:true,order_code:code},201);
+}
 const m=p.match(/^\/api\/orders\/([\w-]+)\/status$/);
 if(m&&r.method==="PATCH"){
  const b=await body(r),adminStatuses=["VERIFIED","PROCESS","ON_TRIP","TRIP_COMPLETED","SUCCESS","RESCHEDULE","CANCEL","PENDING_PAYMENT"],courierStatuses=["ON_TRIP","TRIP_COMPLETED"];
