@@ -10,7 +10,7 @@ document.querySelectorAll("[data-gps]").forEach(b=>b.onclick=()=>{const k=b.data
 $("#loginForm").onsubmit=async e=>{e.preventDefault();$("#loginError").textContent="";try{const d=await api("/api/auth/login",{method:"POST",body:JSON.stringify(Object.fromEntries(new FormData(e.target)))});start(d.user)}catch(x){$("#loginError").textContent=x.message}};
 $("#bootstrapForm").onsubmit=async e=>{e.preventDefault();const v=Object.fromEntries(new FormData(e.target));const msg=$("#bootstrapMessage");msg.textContent="";if(v.password!==v.passwordConfirm){msg.textContent="Konfirmasi password tidak sama.";return}delete v.passwordConfirm;try{const d=await api("/api/auth/bootstrap",{method:"POST",body:JSON.stringify(v)});e.target.reset();msg.textContent=d.message+" Setelah itu jalankan perintah penghapusan secret di Cloudflare."; }catch(x){msg.textContent=x.message}};
 $("#logout").onclick=async()=>{await api("/api/auth/logout",{method:"POST"});location.reload()};
-document.querySelectorAll(".tab").forEach(b=>b.onclick=()=>{document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("active",x===b));["new","orders","users"].forEach(k=>$("#"+k).hidden=b.dataset.tab!==k);if(b.dataset.tab==="new")setTimeout(()=>Object.values(maps).forEach(x=>x.map.invalidateSize()),80);if(b.dataset.tab==="users")loadUsers()});
+document.querySelectorAll(".tab").forEach(b=>b.onclick=()=>{document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("active",x===b));["new","orders","users","pricing"].forEach(k=>$("#"+k).hidden=b.dataset.tab!==k);if(b.dataset.tab==="new")setTimeout(()=>Object.values(maps).forEach(x=>x.map.invalidateSize()),80);if(b.dataset.tab==="users")loadUsers();if(b.dataset.tab==="pricing")loadPricing()});
 $("#orderForm").onsubmit=async e=>{e.preventDefault();const v=Object.fromEntries(new FormData(e.target));["pickup_lat","pickup_lng","destination_lat","destination_lng"].forEach(k=>v[k]=Number(v[k]));try{const d=await api("/api/orders",{method:"POST",body:JSON.stringify(v)});$("#orderMessage").textContent="Order berhasil dibuat: "+d.order_code;loadOrders()}catch(x){$("#orderMessage").textContent=x.message}};
 async function loadOrders(){
  try{
@@ -67,4 +67,13 @@ async function loadUsers(){
 }
 $("#userForm").onsubmit=async e=>{e.preventDefault();const msg=$("#userMessage"),v=Object.fromEntries(new FormData(e.target));msg.textContent="";try{await api("/api/admin/users",{method:"POST",body:JSON.stringify(v)});e.target.reset();msg.textContent="Pengguna berhasil dibuat.";loadUsers()}catch(x){msg.textContent=x.message}};
 $("#refreshUsers").onclick=loadUsers;
+async function loadPricing(){
+ try{
+  const d=await api("/api/admin/pricing"),root=$("#pricingList");root.replaceChildren();
+  if(!d.rules.length){root.innerHTML='<div class="empty">Belum ada tarif aktif.</div>';return}
+  d.rules.forEach(r=>{const el=document.createElement("article");el.className="order";const b=document.createElement("b");b.textContent=({RIDE_MOTOR:"HG Ride Motor",RIDE_CAR:"HG Ride Mobil",SEND:"HG Send"})[r.service_type]||r.service_type;const p=document.createElement("p");p.textContent="Rp "+Number(r.rate_per_km).toLocaleString("id-ID")+" / km · Minimum Rp "+Number(r.minimum_price).toLocaleString("id-ID");el.append(b,p);root.append(el)})
+ }catch(e){$("#pricingList").textContent=e.message}
+}
+$("#pricingForm").onsubmit=async e=>{e.preventDefault();const v=Object.fromEntries(new FormData(e.target));v.rate_per_km=Number(v.rate_per_km);v.minimum_price=Number(v.minimum_price);const msg=$("#pricingMessage");msg.textContent="";try{await api("/api/admin/pricing",{method:"POST",body:JSON.stringify(v)});msg.textContent="Tarif berhasil disimpan.";loadPricing()}catch(x){msg.textContent=x.message}};
+$("#refreshPricing").onclick=loadPricing;
 $("#refresh").onclick=loadOrders;(async()=>{try{const d=await api("/api/auth/me");start(d.user)}catch{}})();
