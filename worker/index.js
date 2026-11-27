@@ -295,28 +295,50 @@ if(p==="/api/admin/pricing"&&r.method==="POST"){
 if(p==="/api/orders"&&r.method==="GET"){let q=user.role==="ADMIN"?env.DB.prepare("SELECT * FROM orders ORDER BY created_at DESC LIMIT 200"):user.role==="COURIER"?env.DB.prepare("SELECT * FROM orders WHERE courier_id=? ORDER BY created_at DESC LIMIT 200").bind(user.id):env.DB.prepare("SELECT * FROM orders WHERE customer_id=? ORDER BY created_at DESC LIMIT 100").bind(user.id);const d=await q.all();return json({orders:d.results})}
 if(p==="/api/orders"&&r.method==="POST"){
  if(user.role!=="CUSTOMER"&&user.role!=="ADMIN")return json({error:"Hanya customer yang dapat membuat order"},403);
- const b=await body(r);
- const coords=[b?.pickup_lat,b?.pickup_lng,b?.destination_lat,b?.destination_lng];
- if(!b||!["RIDE","SEND"].includes(b.type)||!coords.every(Number.isFinite)||Math.abs(b.pickup_lat)>90||Math.abs(b.destination_lat)>90||Math.abs(b.pickup_lng)>180||Math.abs(b.destination_lng)>180||typeof b.pickup_label!=="string"||typeof b.destination_label!=="string"||!b.pickup_label.trim()||!b.destination_label.trim()||b.pickup_label.length>500||b.destination_label.length>500)return json({error:"Data order dan lokasi belum lengkap atau tidak valid"},400);
+ const b=await body(r),coords=[b?.pickup_lat,b?.pickup_lng,b?.destination_lat,b?.destination_lng];
+ if(!b||!["RIDE","SEND"].includes(b.type)||!coords.every(v=>typeof v==="number"&&Number.isFinite(v))||Math.abs(b.pickup_lat)>90||Math.abs(b.destination_lat)>90||Math.abs(b.pickup_lng)>180||Math.abs(b.destination_lng)>180||typeof b.pickup_label!=="string"||typeof b.destination_label!=="string"||!b.pickup_label.trim()||!b.destination_label.trim()||b.pickup_label.length>500||b.destination_label.length>500)return json({error:"Data order dan lokasi belum lengkap atau tidak valid"},400);
+ const distance=Number(b.distance_km);
+ if(!Number.isFinite(distance)||distance<=0||distance>1000)return json({error:"Hitung jarak rute terlebih dahulu sebelum membuat order."},400);
+ const name=typeof b.customer_name==="string"&&b.customer_name.trim()?b.customer_name.trim():user.name;
+ const phone=typeof b.customer_phone==="string"?b.customer_phone.trim().slice(0,30):(user.phone||"");
+ const email=typeof b.customer_email==="string"?b.customer_email.trim().slice(0,254):user.email;
+ if(name.length>100||phone.length>30||email.length>254)return json({error:"Data pemesan terlalu panjang."},400);
+ const vehicle=b.type==="RIDE"?(["Motor","Mobil"].includes(b.vehicle)?b.vehicle:"Motor"):"Motor";
+ const serviceKey=b.type==="RIDE"?(vehicle==="Mobil"?"RIDE_CAR":"RIDE_MOTOR"):"SEND";
+ const pricing=await env.DB.prepare("SELECT rate_per_km,minimum_price FROM pricing_rules WHERE service_type=? AND active=1 ORDER BY effective_from DESC LIMIT 1").bind(serviceKey).first();
+ const rate=Number(pricing?.rate_per_km??(serviceKey==="RIDE_CAR"?3500:serviceKey==="SEND"?2000:1500));
+ const minimum=Number(pricing?.minimum_price??(b.type==="SEND"?6000:5000));
+ const total=Math.max(minimum,Math.round(distance*rate));
+ const company=b.type==="RIDE"?Math.round(total*2/3):Math.round(total*0.75),courier=total-company;
+ const speed=b.type==="SEND"?(String(b.delivery_speed||"SAME_DAY").toUpperCase().replaceAll(" ","_")==="KILAT"?"KILAT":"SAME_DAY"):null;
  const oid=uid();
  const jakartaParts=new Intl.DateTimeFormat("en-GB",{timeZone:"Asia/Jakarta",year:"2-digit",month:"2-digit"}).formatToParts(new Date());
  const yy=jakartaParts.find(x=>x.type==="year")?.value,mm=jakartaParts.find(x=>x.type==="month")?.value;
- const prefix=(b.type==="RIDE"?"HGR":"HGS")+yy+mm;
+ const prefix=(b.type==="RIDE"?"HGR":"HGS")+yy+mm,pad=b.type==="RIDE"?5:4;
  let code=null,inserted=false;
  for(let attempt=0;attempt<5&&!inserted;attempt++){
   const next=await env.DB.prepare("SELECT COALESCE(MAX(CAST(substr(order_code,8) AS INTEGER)),0)+1 AS n FROM orders WHERE order_code LIKE ?").bind(prefix+"%").first();
   const sequence=Number(next?.n||1);
-  const pad=b.type==="RIDE"?5:4;
   if(sequence>=10**pad)return json({error:"Nomor order bulan ini sudah mencapai batas."},409);
   code=prefix+String(sequence).padStart(pad,"0");
   try{
-   await env.DB.prepare("INSERT INTO orders(id,order_code,type,customer_id,status,pickup_label,pickup_lat,pickup_lng,destination_label,destination_lat,destination_lng,vehicle,notes) VALUES(?,?,?,?,'NEW_ORDER',?,?,?,?,?,?,?,?)").bind(oid,code,b.type,user.id,b.pickup_label.trim(),b.pickup_lat,b.pickup_lng,b.destination_label.trim(),b.destination_lat,b.destination_lng,["Motor","Mobil"].includes(b.vehicle)?b.vehicle:null,typeof b.notes==="string"?b.notes.slice(0,1000):null).run();
+   await env.DB.prepare("INSERT INTO orders(id,order_code,type,customer_id,status,pickup_label,pickup_lat,pickup_lng,destination_label,destination_lat,destination_lng,distance_km,vehicle,notes,branch,customer_name,customer_phone,customer_email,pickup_datetime,passenger_count,item_description,item_type,item_weight_kg,delivery_speed,recipient_name,recipient_phone,payment_method,company_share,courier_share,total_payment,price) VALUES(?,?,?,?,'NEW_ORDER',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)").bind(
+    oid,code,b.type,user.id,b.pickup_label.trim(),b.pickup_lat,b.pickup_lng,b.destination_label.trim(),b.destination_lat,b.destination_lng,distance,vehicle,typeof b.notes==="string"?b.notes.slice(0,1000):null,
+    "Healthy Go",name,phone,email,typeof b.pickup_datetime==="string"?b.pickup_datetime.slice(0,40):null,
+    b.type==="RIDE"?Math.max(1,Math.min(4,Number(b.passenger_count)||1)):null,
+    b.type==="SEND"&&typeof b.item_type==="string"?b.item_type.trim().slice(0,120):null,
+    b.type==="SEND"&&typeof b.item_type==="string"?b.item_type.trim().slice(0,120):null,
+    b.type==="SEND"&&Number.isFinite(Number(b.item_weight_kg))?Math.max(0,Number(b.item_weight_kg)):null,
+    speed,b.type==="SEND"&&typeof b.recipient_name==="string"?b.recipient_name.trim().slice(0,100):null,
+    b.type==="SEND"&&typeof b.recipient_phone==="string"?b.recipient_phone.trim().slice(0,30):null,
+    typeof b.payment_method==="string"?b.payment_method.slice(0,100):"Individual",company,courier,total,total
+   ).run();
    inserted=true;
   }catch(e){if(!String(e?.message||e).includes("UNIQUE constraint failed: orders.order_code")||attempt===4)throw e}
  }
  if(!inserted)return json({error:"Gagal membuat nomor order. Silakan coba kembali."},409);
  await env.DB.prepare("INSERT INTO order_events(id,order_id,actor_id,to_status,note) VALUES(?,?,?,'NEW_ORDER','Order dibuat')").bind(uid(),oid,user.id).run();
- return json({ok:true,order_code:code},201);
+ return json({ok:true,order_code:code,total_payment:total,courier_share:courier,company_share:company,distance_km:distance},201);
 }
 const m=p.match(/^\/api\/orders\/([\w-]+)\/status$/);
 if(m&&r.method==="PATCH"){
