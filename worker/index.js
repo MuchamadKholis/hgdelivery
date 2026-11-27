@@ -45,8 +45,9 @@ if(r.method==="POST"&&p==="/api/auth/bootstrap"){const b=await body(r);if(!env.B
 if(r.method==="POST"&&p==="/api/auth/login"){const b=await body(r);if(!b?.email||!b?.password)return json({error:"Email dan password wajib"},400);const a=await env.DB.prepare("SELECT * FROM users WHERE email=? AND active=1").bind(b.email.toLowerCase()).first();if(!a||!(await validPass(b.password,a.password_hash)))return json({error:"Email atau password salah"},401);const t=hex(crypto.getRandomValues(new Uint8Array(32))),exp=new Date(Date.now()+604800000).toISOString();await env.DB.prepare("INSERT INTO sessions(token_hash,user_id,expires_at) VALUES(?,?,?)").bind(await sha(t),a.id,exp).run();return json({user:{id:a.id,name:a.name,email:a.email,role:a.role}},200,{"set-cookie":cookie(t,604800)})}
 if(r.method==="POST"&&p==="/api/auth/logout"){const t=(r.headers.get("cookie")||"").split(";").map(x=>x.trim()).find(x=>x.startsWith("hg_session="))?.slice(11);if(t)await env.DB.prepare("DELETE FROM sessions WHERE token_hash=?").bind(await sha(t)).run();return json({ok:true},200,{"set-cookie":cookie("",0)})}
 const user=await userFrom(r,env);if(p==="/api/auth/me"&&r.method==="GET")return user?json({user}):json({error:"Unauthorized"},401);if(!user)return json({error:"Silakan login"},401);
-if(p.match(/^\\/api\\/orders\\/[\\w-]+\\/proofs$/)&&r.method==="POST"){
- const orderId=p.split("/")[3],order=await env.DB.prepare("SELECT id,customer_id,courier_id FROM orders WHERE id=?").bind(orderId).first();
+const proofUploadParts=p.split("/");
+if(proofUploadParts.length===5&&proofUploadParts[1]==="api"&&proofUploadParts[2]==="orders"&&proofUploadParts[4]==="proofs"&&r.method==="POST"){
+ const orderId=proofUploadParts[3],order=await env.DB.prepare("SELECT id,customer_id,courier_id FROM orders WHERE id=?").bind(orderId).first();
  if(!order)return json({error:"Order tidak ditemukan"},404);
  if(user.role!=="ADMIN"&&!(user.role==="COURIER"&&order.courier_id===user.id))return json({error:"Tidak berhak mengunggah bukti untuk order ini"},403);
  const form=await r.formData(),file=form.get("file"),label=String(form.get("label")||"Bukti").slice(0,80);
@@ -57,9 +58,9 @@ if(p.match(/^\\/api\\/orders\\/[\\w-]+\\/proofs$/)&&r.method==="POST"){
  await env.DB.prepare("INSERT INTO order_proofs(id,order_id,uploaded_by,object_key,content_type,size_bytes,label) VALUES(?,?,?,?,?,?,?)").bind(proofId,orderId,user.id,meta.id,file.type,file.size,label).run();
  return json({ok:true,proof:{id:proofId,label,content_type:file.type,size_bytes:file.size,created_at:new Date().toISOString()}},201);
 }
-const proofMatch=p.match(/^\\/api\\/proofs\\/([\\w-]+)$/);
-if(proofMatch&&r.method==="GET"){
- const proof=await env.DB.prepare("SELECT p.object_key,p.content_type,p.size_bytes,o.customer_id,o.courier_id FROM order_proofs p JOIN orders o ON o.id=p.order_id WHERE p.id=?").bind(proofMatch[1]).first();
+const proofParts=p.split("/");
+if(proofParts.length===4&&proofParts[1]==="api"&&proofParts[2]==="proofs"&&proofParts[3]&&r.method==="GET"){
+ const proof=await env.DB.prepare("SELECT p.object_key,p.content_type,p.size_bytes,o.customer_id,o.courier_id FROM order_proofs p JOIN orders o ON o.id=p.order_id WHERE p.id=?").bind(proofParts[3]).first();
  if(!proof)return json({error:"Bukti tidak ditemukan"},404);
  if(user.role!=="ADMIN"&&proof.customer_id!==user.id&&proof.courier_id!==user.id)return json({error:"Tidak berhak melihat bukti ini"},403);
  const file=await driveRequest(env,"/files/"+encodeURIComponent(proof.object_key)+"?alt=media");
