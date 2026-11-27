@@ -112,6 +112,11 @@ if(proofParts.length===4&&proofParts[1]==="api"&&proofParts[2]==="proofs"&&proof
  return new Response(file.body,{headers:{"content-type":proof.content_type,"content-length":String(proof.size_bytes),"cache-control":"private, no-store","x-content-type-options":"nosniff","content-disposition":"inline"}});
 }
 
+if(p==="/api/admin/dashboard"&&r.method==="GET"){
+ if(user.role!=="ADMIN")return json({error:"Hanya admin"},403);
+ const d=await env.DB.prepare("SELECT (SELECT COUNT(*) FROM orders) total_orders,(SELECT COUNT(*) FROM orders WHERE status IN ('NEW_ORDER','VERIFIED','PENDING_PAYMENT')) waiting_orders,(SELECT COUNT(*) FROM orders WHERE status IN ('PROCESS','ON_TRIP','TRIP_COMPLETED','RESCHEDULE')) active_orders,(SELECT COUNT(*) FROM orders WHERE status='SUCCESS') completed_orders,(SELECT COUNT(*) FROM users WHERE role='COURIER' AND active=1) active_couriers,(SELECT COUNT(*) FROM users WHERE role='CUSTOMER' AND active=1) active_customers").first();
+ return json({metrics:d});
+}
 if(p==="/api/admin/users"&&r.method==="GET"){
  if(user.role!=="ADMIN")return json({error:"Hanya admin"},403);
  const d=await env.DB.prepare("SELECT id,name,email,phone,role,active,created_at FROM users ORDER BY created_at DESC LIMIT 500").all();
