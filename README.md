@@ -2,17 +2,24 @@
 
 Clean rebuild using plain HTML/CSS/JavaScript, Cloudflare Workers, D1 and private R2.
 
+## Cloudflare resources
+
+See [Cloudflare setup guide](docs/CLOUDFLARE_SETUP.md) for the exact commands to create the D1 database and private R2 bucket, apply migrations, configure secrets and deploy.
+
+- D1 database name: `hgdelivery`
+- R2 bucket name: `hgdelivery-private` (private; do not enable public access)
+- Worker name: `hgdelivery`
+- D1 migrations: `database/migrations/`
+
 ## Local development
+
 1. Install Node.js LTS.
-2. Run npm install.
-3. Create a Cloudflare D1 database and R2 bucket.
-4. Replace the placeholder database ID in wrangler.jsonc.
-5. Run npm run db:local and npm run dev.
+2. Run `npm install`.
+3. Create local `.dev.vars` based on the setup guide.
+4. Run `npm run db:local` and `npm run dev`.
 
-## Production
-Set Worker secrets SESSION_SECRET and BOOTSTRAP_ADMIN_PASSWORD, configure D1/R2, apply remote migrations and deploy. Create the first admin through the one-time bootstrap endpoint, then remove BOOTSTRAP_ADMIN_PASSWORD.
+## Production status
 
-## Map
-Search an Indonesian address/place, choose a result, use GPS, click the map or drag the marker. Coordinates and labels are stored with each order. The starter uses public Nominatim; respect its usage policy and select a production geocoder for real traffic.
+This is an implementation in progress, not a production-ready service. The initial customer order and map flow exists, but user management, courier assignment, pricing enforcement, secure proof upload/download, payment workflows, rate limiting, CSRF/origin controls, and end-to-end tests still need completion. Do not onboard real users until these are implemented and tested.
 
-This clean version does not use the legacy Apps Script, Sheets, Drive IDs or frontend credentials. Complete user management, pricing/business rules, migration, security review and end-to-end tests before production cutover.
+The clean version does not use legacy Apps Script, Sheets, Drive IDs or frontend credentials. Deleting old secrets from the new code does not erase them from Git history; rotate any credentials that were ever committed.
