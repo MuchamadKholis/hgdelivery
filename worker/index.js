@@ -110,6 +110,52 @@ if(proofParts.length===4&&proofParts[1]==="api"&&proofParts[2]==="proofs"&&proof
  return new Response(file.body,{headers:{"content-type":proof.content_type,"content-length":String(proof.size_bytes),"cache-control":"private, no-store","x-content-type-options":"nosniff","content-disposition":"inline"}});
 }
 
+if(p==="/api/admin/users"&&r.method==="GET"){
+ if(user.role!=="ADMIN")return json({error:"Hanya admin"},403);
+ const d=await env.DB.prepare("SELECT id,name,email,phone,role,active,created_at FROM users ORDER BY created_at DESC LIMIT 500").all();
+ return json({users:d.results});
+}
+if(p==="/api/admin/users"&&r.method==="POST"){
+ if(user.role!=="ADMIN")return json({error:"Hanya admin"},403);
+ const b=await body(r);
+ if(typeof b?.name!=="string"||typeof b?.email!=="string"||typeof b?.password!=="string"||!["CUSTOMER","COURIER"].includes(b.role)||b.name.trim().length<2||b.name.length>100||b.email.trim().length<5||b.email.length>254||b.password.length<12||b.password.length>1024)return json({error:"Nama, email, role, atau password tidak valid. Password minimal 12 karakter."},400);
+ const id=uid(),email=b.email.trim().toLowerCase();
+ try{
+  await env.DB.prepare("INSERT INTO users(id,name,email,phone,password_hash,role) VALUES(?,?,?,?,?,?)").bind(id,b.name.trim(),email,typeof b.phone==="string"?b.phone.trim().slice(0,30):null,await hashPass(b.password),b.role).run();
+ }catch{return json({error:"Email sudah digunakan atau data tidak valid"},409)}
+ await env.DB.prepare("INSERT INTO audit_logs(id,actor_id,action,entity_type,entity_id,detail) VALUES(?,?,'USER_CREATED','USER',?,?)").bind(uid(),user.id,id,b.role).run();
+ return json({ok:true,user:{id,name:b.name.trim(),email,role:b.role,active:1}},201);
+}
+const activeMatch=p.match(/^\/api\/admin\/users\/([\\w-]+)\/active$/);
+if(activeMatch&&r.method==="PATCH"){
+ if(user.role!=="ADMIN")return json({error:"Hanya admin"},403);
+ const b=await body(r),target=await env.DB.prepare("SELECT id,role,active FROM users WHERE id=?").bind(activeMatch[1]).first();
+ if(!target)return json({error:"Pengguna tidak ditemukan"},404);
+ if(target.id===user.id&&b?.active===false)return json({error:"Akun admin yang sedang digunakan tidak dapat dinonaktifkan"},400);
+ if(typeof b?.active!=="boolean")return json({error:"Status aktif tidak valid"},400);
+ if(target.role==="ADMIN"&&b.active===false){
+  const n=await env.DB.prepare("SELECT COUNT(*) n FROM users WHERE role='ADMIN' AND active=1").first();
+  if(n.n<=1)return json({error:"Minimal harus ada satu admin aktif"},400);
+ }
+ await env.DB.prepare("UPDATE users SET active=? WHERE id=?").bind(b.active?1:0,target.id).run();
+ if(!b.active)await env.DB.prepare("DELETE FROM sessions WHERE user_id=?").bind(target.id).run();
+ await env.DB.prepare("INSERT INTO audit_logs(id,actor_id,action,entity_type,entity_id,detail) VALUES(?,?,?,?,?,?)").bind(uid(),user.id,b.active?"USER_ACTIVATED":"USER_DEACTIVATED","USER",target.id,target.role).run();
+ return json({ok:true});
+}
+const assignMatch=p.match(/^\/api\/orders\/([\\w-]+)\/assign$/);
+if(assignMatch&&r.method==="PATCH"){
+ if(user.role!=="ADMIN")return json({error:"Hanya admin"},403);
+ const b=await body(r),courier=await env.DB.prepare("SELECT id FROM users WHERE id=? AND role='COURIER' AND active=1").bind(b?.courierId).first();
+ if(!courier)return json({error:"Pilih akun kurir aktif yang valid"},400);
+ const order=await env.DB.prepare("SELECT id,courier_id,status FROM orders WHERE id=?").bind(assignMatch[1]).first();
+ if(!order)return json({error:"Order tidak ditemukan"},404);
+ await env.DB.batch([
+  env.DB.prepare("UPDATE orders SET courier_id=?,assigned_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(courier.id,order.id),
+  env.DB.prepare("INSERT INTO order_events(id,order_id,actor_id,from_status,to_status,note) VALUES(?,?,?,?,?,?)").bind(uid(),order.id,user.id,order.status,order.status,"Kurir ditugaskan: "+courier.id),
+  env.DB.prepare("INSERT INTO audit_logs(id,actor_id,action,entity_type,entity_id,detail) VALUES(?,?,'COURIER_ASSIGNED','ORDER',?,?)").bind(uid(),user.id,order.id,courier.id)
+ ]);
+ return json({ok:true});
+}
 if(p==="/api/orders"&&r.method==="GET"){let q=user.role==="ADMIN"?env.DB.prepare("SELECT * FROM orders ORDER BY created_at DESC LIMIT 200"):user.role==="COURIER"?env.DB.prepare("SELECT * FROM orders WHERE courier_id=? ORDER BY created_at DESC LIMIT 200").bind(user.id):env.DB.prepare("SELECT * FROM orders WHERE customer_id=? ORDER BY created_at DESC LIMIT 100").bind(user.id);const d=await q.all();return json({orders:d.results})}
 if(p==="/api/orders"&&r.method==="POST"){const b=await body(r);if(!b||!["RIDE","SEND"].includes(b.type)||![b.pickup_lat,b.pickup_lng,b.destination_lat,b.destination_lng].every(Number.isFinite)||!b.pickup_label||!b.destination_label)return json({error:"Data order dan lokasi belum lengkap"},400);const oid=uid(),code="HG-"+Date.now().toString(36).toUpperCase()+"-"+uid().slice(0,4).toUpperCase();await env.DB.prepare("INSERT INTO orders(id,order_code,type,customer_id,status,pickup_label,pickup_lat,pickup_lng,destination_label,destination_lat,destination_lng,vehicle,notes) VALUES(?,?,?,?,'NEW_ORDER',?,?,?,?,?,?,?,?)").bind(oid,code,b.type,user.id,b.pickup_label,b.pickup_lat,b.pickup_lng,b.destination_label,b.destination_lat,b.destination_lng,b.vehicle||null,b.notes||null).run();await env.DB.prepare("INSERT INTO order_events(id,order_id,actor_id,to_status,note) VALUES(?,?,?,'NEW_ORDER','Order dibuat')").bind(uid(),oid,user.id).run();return json({ok:true,order_code:code},201)}
 const m=p.match(/^\/api\/orders\/([\w-]+)\/status$/);if(m&&r.method==="PATCH"){if(user.role!=="ADMIN")return json({error:"Hanya admin"},403);const b=await body(r),allowed=["VERIFIED","PROCESS","ON_TRIP","TRIP_COMPLETED","SUCCESS","RESCHEDULE","CANCEL","PENDING_PAYMENT"];if(!allowed.includes(b?.status))return json({error:"Status tidak valid"},400);const old=await env.DB.prepare("SELECT status FROM orders WHERE id=?").bind(m[1]).first();if(!old)return json({error:"Order tidak ditemukan"},404);await env.DB.batch([env.DB.prepare("UPDATE orders SET status=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(b.status,m[1]),env.DB.prepare("INSERT INTO order_events(id,order_id,actor_id,from_status,to_status,note) VALUES(?,?,?,?,?,?)").bind(uid(),m[1],user.id,old.status,b.status,b.note||null)]);return json({ok:true})}
