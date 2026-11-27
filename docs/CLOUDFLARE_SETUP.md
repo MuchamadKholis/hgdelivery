@@ -42,7 +42,7 @@ Never paste secret values into chat, Git, frontend JavaScript, or screenshots. T
 
 ## 5. Free route estimate (optional)
 
-HGDelivery can use the OpenRouteService free Standard API for road-distance estimates. Create a free account and API key at [OpenRouteService](https://openrouteservice.org/plans/). The free plan has daily/minute quotas; check the provider's current plan limits before use. No Google Maps billing is needed for this route estimate.
+HGDelivery can use the OpenRouteService free Standard API for road-distance estimates. Create a free account and API key at [OpenRouteService](https://openrouteservice.org/plans/). The free Standard plan currently lists up to 2,000 directions requests per day and 40 per minute. Limits can change, so check the provider's current quota before use. It requires a free account/API key, but does not use Google Maps billing or a paid Google Cloud project.
 
 Store the key only as a Worker secret:
 
@@ -86,7 +86,7 @@ wrangler.cmd deploy
 
 The GitHub Actions deployment workflow is configured for pushes to `main` and manual dispatch. Do not merge rebuild work into `main` as part of routine testing.
 
-## 7. Privacy and production readiness
+## 8. Privacy and production readiness
 
 - Proof photos are stored in a private Google Drive folder; D1 stores metadata and Drive file IDs only.
 - Proof upload is restricted to the assigned courier or admin; download is restricted to the admin, order customer, or assigned courier.
