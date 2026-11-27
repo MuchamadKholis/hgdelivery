@@ -34,6 +34,17 @@ async function loadOrders(){
     btn.onclick=async()=>{if(!sel.value){alert("Pilih kurir terlebih dahulu.");return}btn.disabled=true;try{await api("/api/orders/"+encodeURIComponent(o.id)+"/assign",{method:"PATCH",body:JSON.stringify({courierId:sel.value})});btn.textContent="Tersimpan"}catch(e){alert(e.message);btn.disabled=false}};
     line.append(sel,btn);el.append(line)
    }
+   if(me.role==="ADMIN"||me.role==="COURIER"){
+    const choices=me.role==="ADMIN"?["VERIFIED","PROCESS","ON_TRIP","TRIP_COMPLETED","SUCCESS","RESCHEDULE","CANCEL","PENDING_PAYMENT"]:o.status==="PROCESS"?["ON_TRIP"]:o.status==="ON_TRIP"?["TRIP_COMPLETED"]:[];
+    if(choices.length){
+     const statusLine=document.createElement("div");statusLine.className="assignline";
+     const statusSelect=document.createElement("select");statusSelect.setAttribute("aria-label","Ubah status "+o.order_code);
+     choices.forEach(v=>{const op=document.createElement("option");op.value=v;op.textContent=v.replaceAll("_"," ");statusSelect.append(op)});
+     const statusButton=document.createElement("button");statusButton.type="button";statusButton.className="secondary";statusButton.textContent="Perbarui status";
+     statusButton.onclick=async()=>{statusButton.disabled=true;try{await api("/api/orders/"+encodeURIComponent(o.id)+"/status",{method:"PATCH",body:JSON.stringify({status:statusSelect.value})});await loadOrders()}catch(e){alert(e.message);statusButton.disabled=false}};
+     statusLine.append(statusSelect,statusButton);el.append(statusLine)
+    }
+   }
    root.append(el)
   })
  }catch(e){$("#orderList").textContent=e.message}
