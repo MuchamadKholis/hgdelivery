@@ -99,8 +99,19 @@ if(proofUploadParts.length===5&&proofUploadParts[1]==="api"&&proofUploadParts[2]
  if(!["image/jpeg","image/png","image/webp"].includes(file.type))return json({error:"Format foto harus JPG, PNG, atau WebP"},415);
  if(file.size<1||file.size>8*1024*1024)return json({error:"Ukuran foto maksimal 8 MB"},413);
  const meta=await uploadDriveProof(env,file,orderId),proofId=uid();
- await env.DB.prepare("INSERT INTO order_proofs(id,order_id,uploaded_by,object_key,content_type,size_bytes,label) VALUES(?,?,?,?,?,?,?)").bind(proofId,orderId,user.id,meta.id,file.type,file.size,label).run();
+ await env.DB.batch([
+  env.DB.prepare("INSERT INTO order_proofs(id,order_id,uploaded_by,object_key,content_type,size_bytes,label) VALUES(?,?,?,?,?,?,?)").bind(proofId,orderId,user.id,meta.id,file.type,file.size,label),
+  env.DB.prepare("INSERT INTO audit_logs(id,actor_id,action,entity_type,entity_id,detail) VALUES(?,?,'ORDER_PROOF_UPLOADED','ORDER',?,?)").bind(uid(),user.id,orderId,label+" · "+file.type+" · "+file.size+" bytes")
+ ]);
  return json({ok:true,proof:{id:proofId,label,content_type:file.type,size_bytes:file.size,created_at:new Date().toISOString()}},201);
+}
+const orderProofsMatch=p.match(/^\/api\/orders\/([\\w-]+)\/proofs$/);
+if(orderProofsMatch&&r.method==="GET"){
+ const order=await env.DB.prepare("SELECT id,customer_id,courier_id FROM orders WHERE id=?").bind(orderProofsMatch[1]).first();
+ if(!order)return json({error:"Order tidak ditemukan"},404);
+ if(user.role!=="ADMIN"&&order.customer_id!==user.id&&order.courier_id!==user.id)return json({error:"Tidak berhak melihat bukti order ini"},403);
+ const d=await env.DB.prepare("SELECT id,label,content_type,size_bytes,uploaded_by,created_at FROM order_proofs WHERE order_id=? ORDER BY created_at DESC").bind(order.id).all();
+ return json({proofs:d.results});
 }
 const proofParts=p.split("/");
 if(proofParts.length===4&&proofParts[1]==="api"&&proofParts[2]==="proofs"&&proofParts[3]&&r.method==="GET"){
