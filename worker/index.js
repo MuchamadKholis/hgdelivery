@@ -144,11 +144,16 @@ if(orderPaymentsMatch&&r.method==="POST"){
  const methods=["CASH","BANK_TRANSFER","QRIS","OTHER"];
  if(!Number.isSafeInteger(b?.amount)||b.amount<1||b.amount>100000000||!methods.includes(b.method)||typeof (b.reference??"")!=="string"||(b.reference||"").length>100)return json({error:"Nominal, metode, atau referensi pembayaran tidak valid"},400);
  const id=uid(),ref=(b.reference||"").trim()||null;
- await env.DB.batch([
-  env.DB.prepare("INSERT INTO order_payments(id,order_id,amount,method,reference,status,paid_at) VALUES(?,?,?,?,?,'PAID',CURRENT_TIMESTAMP)").bind(id,order.id,b.amount,b.method,ref),
-  env.DB.prepare("UPDATE orders SET payment_status='PAID',updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(order.id),
-  env.DB.prepare("INSERT INTO audit_logs(id,actor_id,action,entity_type,entity_id,detail) VALUES(?,?,'PAYMENT_RECORDED','ORDER',?,?)").bind(uid(),user.id,order.id,"Rp "+b.amount+" · "+b.method+(ref?" · "+ref:""))
- ]);
+ try{
+  await env.DB.batch([
+   env.DB.prepare("INSERT INTO order_payments(id,order_id,amount,method,reference,status,paid_at) VALUES(?,?,?,?,?,'PAID',CURRENT_TIMESTAMP)").bind(id,order.id,b.amount,b.method,ref),
+   env.DB.prepare("UPDATE orders SET payment_status='PAID',updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(order.id),
+   env.DB.prepare("INSERT INTO audit_logs(id,actor_id,action,entity_type,entity_id,detail) VALUES(?,?,'PAYMENT_RECORDED','ORDER',?,?)").bind(uid(),user.id,order.id,"Rp "+b.amount+" · "+b.method+(ref?" · "+ref:""))
+  ]);
+ }catch(e){
+  if(String(e?.message||e).includes("idx_order_single_paid_payment")||String(e?.message||e).includes("UNIQUE constraint failed: order_payments.order_id"))return json({error:"Pembayaran order ini sudah tercatat. Muat ulang daftar order."},409);
+  throw e;
+ }
  return json({ok:true,payment_id:id},201);
 }
 if(p==="/api/admin/dashboard"&&r.method==="GET"){
