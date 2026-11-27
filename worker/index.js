@@ -99,18 +99,50 @@ if(r.method==="POST"&&p==="/api/auth/login"){
 }
 if(r.method==="POST"&&p==="/api/auth/logout"){const t=(r.headers.get("cookie")||"").split(";").map(x=>x.trim()).find(x=>x.startsWith("hg_session="))?.slice(11);if(t)await env.DB.prepare("DELETE FROM sessions WHERE token_hash=?").bind(await sha(t)).run();return json({ok:true},200,{"set-cookie":cookie("",0)})}
 const user=await userFrom(r,env);if(p==="/api/auth/me"&&r.method==="GET")return user?json({user}):json({error:"Unauthorized"},401);if(!user)return json({error:"Silakan login"},401);
+if(p==="/api/geocode/search"&&r.method==="GET"){
+ const q=(u.searchParams.get("q")||"").trim();
+ if(q.length<3||q.length>180)return json({error:"Masukkan minimal 3 karakter alamat."},400);
+ const target=new URL("https://nominatim.openstreetmap.org/search");
+ target.search=new URLSearchParams({format:"jsonv2",addressdetails:"1",limit:"8",countrycodes:"id",accept_language:"id",q}).toString();
+ const response=await fetch(target.toString(),{headers:{"User-Agent":"HGDelivery/1.0","Accept-Language":"id"}});
+ if(!response.ok){console.error("GEOCODE_SEARCH_FAILED",response.status);return json({error:response.status===429?"Pencarian alamat sedang padat. Tunggu sebentar lalu coba lagi.":"Layanan pencarian alamat sedang bermasalah. Coba lagi beberapa saat."},502)}
+ const results=await response.json().catch(()=>[]);
+ return json({results:Array.isArray(results)?results:[]});
+}
+if(p==="/api/geocode/reverse"&&r.method==="GET"){
+ const lat=Number(u.searchParams.get("lat")),lon=Number(u.searchParams.get("lon"));
+ if(!Number.isFinite(lat)||!Number.isFinite(lon)||Math.abs(lat)>90||Math.abs(lon)>180)return json({error:"Titik koordinat tidak valid."},400);
+ const target=new URL("https://nominatim.openstreetmap.org/reverse");
+ target.search=new URLSearchParams({format:"jsonv2",lat:String(lat),lon:String(lon),zoom:"18",addressdetails:"1",accept_language:"id"}).toString();
+ const response=await fetch(target.toString(),{headers:{"User-Agent":"HGDelivery/1.0","Accept-Language":"id"}});
+ if(!response.ok){console.error("GEOCODE_REVERSE_FAILED",response.status);return json({error:"Nama alamat untuk titik ini belum tersedia."},502)}
+ const result=await response.json().catch(()=>null);
+ return json({display_name:result?.display_name||""});
+}
 if(r.method==="POST"&&p==="/api/route/estimate"){
  if(user.role!=="ADMIN"&&user.role!=="CUSTOMER")return json({error:"Fitur estimasi hanya untuk admin dan customer"},403);
  if(!env.OPENROUTESERVICE_API_KEY)return json({error:"Layanan rute belum diaktifkan. Admin perlu memasang API key OpenRouteService."},503);
  const b=await body(r),coords=[b?.pickup_lat,b?.pickup_lng,b?.destination_lat,b?.destination_lng];
  if(!b||!coords.every(v=>typeof v==="number"&&Number.isFinite(v))||Math.abs(b.pickup_lat)>90||Math.abs(b.destination_lat)>90||Math.abs(b.pickup_lng)>180||Math.abs(b.destination_lng)>180)return json({error:"Koordinat lokasi tidak valid"},400);
- const route=await fetch("https://api.openrouteservice.org/v2/directions/driving-car/geojson",{
-  method:"POST",
-  headers:{"authorization":env.OPENROUTESERVICE_API_KEY,"content-type":"application/json"},
-  body:JSON.stringify({coordinates:[[b.pickup_lng,b.pickup_lat],[b.destination_lng,b.destination_lat]],instructions:false})
- });
+ if(Math.abs(b.pickup_lat-b.destination_lat)<0.000001&&Math.abs(b.pickup_lng-b.destination_lng)<0.000001)return json({error:"Lokasi jemput dan tujuan masih berada di titik yang sama. Geser salah satu pin."},400);
+ let route;
+ try{
+  route=await fetch("https://api.openrouteservice.org/v2/directions/driving-car/geojson",{
+   method:"POST",
+   headers:{"authorization":env.OPENROUTESERVICE_API_KEY.trim(),"content-type":"application/json"},
+   body:JSON.stringify({coordinates:[[b.pickup_lng,b.pickup_lat],[b.destination_lng,b.destination_lat]],instructions:false})
+  });
+ }catch(e){console.error("ORS_NETWORK_FAILED",String(e));return json({error:"Tidak dapat terhubung ke layanan rute. Coba lagi beberapa saat."},502)}
  const data=await route.json().catch(()=>null);
- if(!route.ok||!data?.features?.[0]?.properties?.summary)return json({error:route.status===429?"Kuota rute gratis sedang mencapai batas. Coba lagi nanti.":"Rute tidak dapat dihitung. Periksa titik lokasi dan coba lagi."},502);
+ if(!route.ok||!data?.features?.[0]?.properties?.summary){
+  const providerMessage=String(data?.error?.message||data?.message||"");
+  console.error("ORS_ROUTE_FAILED",route.status,providerMessage.slice(0,300));
+  if(route.status===401||route.status===403)return json({error:"API key OpenRouteService ditolak. Periksa secret OPENROUTESERVICE_API_KEY di Cloudflare."},502);
+  if(route.status===429)return json({error:"Kuota rute gratis OpenRouteService sedang mencapai batas. Coba lagi nanti."},502);
+  if(route.status===404||/route.*not.*found|could not find.*route/i.test(providerMessage))return json({error:"Tidak ditemukan jalan yang menghubungkan kedua titik. Periksa pin jemput dan tujuan."},422);
+  if(route.status===400)return json({error:"OpenRouteService menolak titik lokasi. Geser pin sedikit ke jalan yang dapat dilalui kendaraan."},422);
+  return json({error:"Layanan rute sedang bermasalah (kode "+route.status+"). Coba lagi beberapa saat."},502);
+ }
  const summary=data.features[0].properties.summary;
  return json({distance_km:Math.round(summary.distance/10)/100,duration_minutes:Math.max(1,Math.round(summary.duration/60)),geometry:data.features[0].geometry,provider:"OpenRouteService",profile:"driving-car",note:"Estimasi rute jalan mobil. Untuk motor, jarak bisa berbeda; belum digunakan untuk menentukan tarif final.",attribution:"© openrouteservice | © OpenStreetMap contributors"});
 }
@@ -267,8 +299,22 @@ if(p==="/api/orders"&&r.method==="POST"){
  const b=await body(r);
  const coords=[b?.pickup_lat,b?.pickup_lng,b?.destination_lat,b?.destination_lng];
  if(!b||!["RIDE","SEND"].includes(b.type)||!coords.every(Number.isFinite)||Math.abs(b.pickup_lat)>90||Math.abs(b.destination_lat)>90||Math.abs(b.pickup_lng)>180||Math.abs(b.destination_lng)>180||typeof b.pickup_label!=="string"||typeof b.destination_label!=="string"||!b.pickup_label.trim()||!b.destination_label.trim()||b.pickup_label.length>500||b.destination_label.length>500)return json({error:"Data order dan lokasi belum lengkap atau tidak valid"},400);
- const oid=uid(),code="HG-"+Date.now().toString(36).toUpperCase()+"-"+uid().slice(0,4).toUpperCase();
- await env.DB.prepare("INSERT INTO orders(id,order_code,type,customer_id,status,pickup_label,pickup_lat,pickup_lng,destination_label,destination_lat,destination_lng,vehicle,notes) VALUES(?,?,?,?,'NEW_ORDER',?,?,?,?,?,?,?,?)").bind(oid,code,b.type,user.id,b.pickup_label.trim(),b.pickup_lat,b.pickup_lng,b.destination_label.trim(),b.destination_lat,b.destination_lng,["Motor","Mobil"].includes(b.vehicle)?b.vehicle:null,typeof b.notes==="string"?b.notes.slice(0,1000):null).run();
+ const oid=uid();
+ const jakartaParts=new Intl.DateTimeFormat("en-GB",{timeZone:"Asia/Jakarta",year:"2-digit",month:"2-digit"}).formatToParts(new Date());
+ const yy=jakartaParts.find(x=>x.type==="year")?.value,mm=jakartaParts.find(x=>x.type==="month")?.value;
+ const prefix="HGR/S"+yy+mm;
+ let code=null,inserted=false;
+ for(let attempt=0;attempt<5&&!inserted;attempt++){
+  const next=await env.DB.prepare("SELECT COALESCE(MAX(CAST(substr(order_code,10) AS INTEGER)),0)+1 AS n FROM orders WHERE order_code LIKE ?").bind(prefix+"%").first();
+  const sequence=Number(next?.n||1);
+  if(sequence>9999)return json({error:"Nomor order bulan ini sudah mencapai batas 9999."},409);
+  code=prefix+String(sequence).padStart(4,"0");
+  try{
+   await env.DB.prepare("INSERT INTO orders(id,order_code,type,customer_id,status,pickup_label,pickup_lat,pickup_lng,destination_label,destination_lat,destination_lng,vehicle,notes) VALUES(?,?,?,?,'NEW_ORDER',?,?,?,?,?,?,?,?)").bind(oid,code,b.type,user.id,b.pickup_label.trim(),b.pickup_lat,b.pickup_lng,b.destination_label.trim(),b.destination_lat,b.destination_lng,["Motor","Mobil"].includes(b.vehicle)?b.vehicle:null,typeof b.notes==="string"?b.notes.slice(0,1000):null).run();
+   inserted=true;
+  }catch(e){if(!String(e?.message||e).includes("UNIQUE constraint failed: orders.order_code")||attempt===4)throw e}
+ }
+ if(!inserted)return json({error:"Gagal membuat nomor order. Silakan coba kembali."},409);
  await env.DB.prepare("INSERT INTO order_events(id,order_id,actor_id,to_status,note) VALUES(?,?,?,'NEW_ORDER','Order dibuat')").bind(uid(),oid,user.id).run();
  return json({ok:true,order_code:code},201);
 }
