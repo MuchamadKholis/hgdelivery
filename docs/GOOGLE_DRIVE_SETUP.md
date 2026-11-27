@@ -66,3 +66,25 @@ D1 stores the Drive file ID in `order_proofs.object_key`. Do not store OAuth tok
 - Before production, add request rate limits, CSRF/origin checks, audit logging, deletion/retention rules, and upload malware/content validation.
 - The current endpoint enforces role/order access and an 8 MB image size/type limit, but the app is still a development build. Do not upload real customer documents until the full security review and end-to-end tests are complete.
 - If OAuth consent remains in Testing, refresh-token validity can be limited by Google's testing-mode policy. Publish/configure the consent screen appropriately before long-term production use.
+
+
+## First admin and security hardening
+
+The Worker also requires a one-time bootstrap secret before the first administrator can be created.
+
+1. Set a long, unique secret from PowerShell (Wrangler prompts for the value; do not paste it into chat):
+
+```powershell
+wrangler.cmd secret put BOOTSTRAP_ADMIN_PASSWORD
+```
+
+2. After the Worker is deployed for a controlled test, send a POST request to `/api/auth/bootstrap` with JSON fields `bootstrapPassword`, `name`, `email`, and `password`. The admin password must be at least 12 characters. Keep the bootstrap secret separate from the admin password.
+3. Immediately remove the bootstrap secret after the first admin is created:
+
+```powershell
+wrangler.cmd secret delete BOOTSTRAP_ADMIN_PASSWORD
+```
+
+The current hardening migration adds hashed login-rate-limit keys. Login is limited to five attempts per email/IP pair per 15-minute window. State-changing API requests must include the exact same-origin `Origin` header. Apply all pending migrations before deploying this branch.
+
+Do not use real customer data during initial testing. The app still needs broader end-to-end security and operational testing before production.
