@@ -20,7 +20,7 @@ function updateFare(){
  const rate=type==="SEND"?2000:(vehicle==="Mobil"?3500:1500),minimum=type==="SEND"?6000:5000;
  const total=km>0?Math.max(minimum,Math.round(km*rate)):0;
  const company=type==="SEND"?Math.round(total*.75):Math.round(total*2/3),courier=total-company;
- $("#fareServiceLabel").textContent=type==="SEND"?"TARIF HG SEND":"TARIF HG RIDE";
+ $("#fareServiceLabel").textContent=type==="SEND"?"TARIF HG SEND":"TARIF HG RIDE";$("#customerNameLabel").textContent=type==="SEND"?"Nama Pengirim *":"Nama Pemesan / Penumpang *";
  $("#fareRateLabel").textContent=rupiah(rate)+" / km";
  $("#fareTotalDisplay").textContent=rupiah(total);
  $("#fareDistanceDisplay").textContent=km.toFixed(1)+" km";
@@ -31,7 +31,7 @@ function updateFare(){
  $("#sendFields").hidden=type!=="SEND";
  $("#vehicleGroup").hidden=type!=="RIDE";
 }
-$("#estimateRoute").onclick=async()=>{const button=$("#estimateRoute"),box=$("#routeEstimate"),v=Object.fromEntries(new FormData($("#orderForm")));["pickup_lat","pickup_lng","destination_lat","destination_lng"].forEach(k=>v[k]=Number(v[k]));if(![v.pickup_lat,v.pickup_lng,v.destination_lat,v.destination_lng].every(Number.isFinite)){box.textContent="Pilih lokasi jemput dan tujuan terlebih dahulu.";return}button.disabled=true;box.textContent="Menghitung rute…";try{const d=await api("/api/route/estimate",{method:"POST",body:JSON.stringify(v)});routeKm=Number(d.distance_km)||0;box.textContent="Jarak jalan ± "+routeKm.toLocaleString("id-ID")+" km · Waktu ± "+d.duration_minutes.toLocaleString("id-ID")+" menit · "+d.provider+". "+d.note+" "+d.attribution;updateFare();if(routeLine){Object.values(maps).forEach(m=>m.map.removeLayer(routeLine))}routeLine=L.geoJSON(d.geometry,{style:{color:"#16a34a",weight:5,opacity:.85}});routeLine.addTo(maps.pickup.map);maps.pickup.map.fitBounds(routeLine.getBounds(),{padding:[24,24]})}catch(x){routeKm=0;updateFare();box.textContent=x.message}finally{button.disabled=false}};
+$("#estimateRoute").onclick=async()=>{const button=$("#estimateRoute"),box=$("#routeEstimate"),v=Object.fromEntries(new FormData($("#orderForm")));["pickup_lat","pickup_lng","destination_lat","destination_lng"].forEach(k=>v[k]=Number(v[k]));if(![v.pickup_lat,v.pickup_lng,v.destination_lat,v.destination_lng].every(Number.isFinite)){box.textContent="Pilih lokasi jemput dan tujuan terlebih dahulu.";return}button.disabled=true;box.textContent="Menghitung rute…";try{const d=await api("/api/route/estimate",{method:"POST",body:JSON.stringify(v)});routeKm=Number(d.distance_km)||0;$("#adminDistanceInput").value=routeKm;box.textContent="Jarak jalan ± "+routeKm.toLocaleString("id-ID")+" km · Waktu ± "+d.duration_minutes.toLocaleString("id-ID")+" menit · "+d.provider+". "+d.note+" "+d.attribution;updateFare();if(routeLine){Object.values(maps).forEach(m=>m.map.removeLayer(routeLine))}routeLine=L.geoJSON(d.geometry,{style:{color:"#16a34a",weight:5,opacity:.85}});routeLine.addTo(maps.pickup.map);maps.pickup.map.fitBounds(routeLine.getBounds(),{padding:[24,24]})}catch(x){routeKm=0;updateFare();box.textContent=x.message}finally{button.disabled=false}};
 $("#serviceTypeInput").onchange=updateFare;$("#vehicleTypeInput").onchange=updateFare;
 $("#adminDistanceInput").oninput=()=>{if(me?.role==="ADMIN"){routeKm=Math.max(0,Number($("#adminDistanceInput").value)||0);$("#routeEstimate").textContent="Jarak dikoreksi manual oleh admin.";updateFare()}};
 updateFare();
