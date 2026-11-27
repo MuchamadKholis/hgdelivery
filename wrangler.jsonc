@@ -2,6 +2,6 @@
  "$schema":"node_modules/wrangler/config-schema.json",
  "name":"hgdelivery","main":"worker/index.js","compatibility_date":"2026-11-27",
  "assets":{"directory":"./public","binding":"ASSETS","not_found_handling":"single-page-application"},
- "d1_databases":[{"binding":"DB","database_name":"hgdelivery","database_id":"REPLACE_WITH_D1_DATABASE_ID","migrations_dir":"database/migrations"}],
+ "d1_databases":[{"binding":"DB","database_name":"hgdelivery","database_id":"533a25fa-17b0-4e89-a8c1-cdc5ca28de7a","migrations_dir":"database/migrations"}],
  "r2_buckets":[{"binding":"PROOFS","bucket_name":"hgdelivery-private"}]
 }
