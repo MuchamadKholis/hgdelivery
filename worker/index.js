@@ -5,15 +5,15 @@ async function hashPass(p,salt=uid()){const k=await crypto.subtle.importKey("raw
 async function validPass(p,h){const [salt,want]=h.split(":");return (await hashPass(p,salt)).split(":")[1]===want}
 async function body(r){try{return await r.json()}catch{return null}}
 async function loginAllowed(env,email,ip){
-  const key=await sha(email.toLowerCase()+"|"+ip);
   const now=Math.floor(Date.now()/1000),windowSeconds=15*60;
-  const row=await env.DB.prepare("SELECT window_started_at,attempts FROM auth_login_limits WHERE limit_key=?").bind(key).first();
-  if(!row||now-row.window_started_at>=windowSeconds){
-    await env.DB.prepare("INSERT INTO auth_login_limits(limit_key,window_started_at,attempts) VALUES(?,?,1) ON CONFLICT(limit_key) DO UPDATE SET window_started_at=excluded.window_started_at,attempts=1,updated_at=CURRENT_TIMESTAMP").bind(key,now).run();
-    return true;
+  const keys=[{key:await sha(email.toLowerCase()+"|"+ip),limit:5},{key:await sha("ip|"+ip),limit:30}];
+  for(const item of keys){
+    const row=await env.DB.prepare("SELECT window_started_at,attempts FROM auth_login_limits WHERE limit_key=?").bind(item.key).first();
+    if(row&&now-row.window_started_at<windowSeconds&&row.attempts>=item.limit)return false;
   }
-  if(row.attempts>=5)return false;
-  await env.DB.prepare("UPDATE auth_login_limits SET attempts=attempts+1,updated_at=CURRENT_TIMESTAMP WHERE limit_key=?").bind(key).run();
+  for(const item of keys){
+    await env.DB.prepare("INSERT INTO auth_login_limits(limit_key,window_started_at,attempts) VALUES(?,?,1) ON CONFLICT(limit_key) DO UPDATE SET window_started_at=CASE WHEN excluded.window_started_at-auth_login_limits.window_started_at>=900 THEN excluded.window_started_at ELSE auth_login_limits.window_started_at END,attempts=CASE WHEN excluded.window_started_at-auth_login_limits.window_started_at>=900 THEN 1 ELSE auth_login_limits.attempts+1 END,updated_at=CURRENT_TIMESTAMP").bind(item.key,now).run();
+  }
   return true;
 }
 async function clearLoginLimit(env,email,ip){
