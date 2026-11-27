@@ -4,6 +4,7 @@ async function sha(s){return hex(await crypto.subtle.digest("SHA-256",new TextEn
 async function hashPass(p,salt=uid()){const k=await crypto.subtle.importKey("raw",new TextEncoder().encode(p),"PBKDF2",false,["deriveBits"]);const bits=await crypto.subtle.deriveBits({name:"PBKDF2",salt:new TextEncoder().encode(salt),iterations:310000,hash:"SHA-256"},k,256);return salt+":"+hex(bits)}
 async function validPass(p,h){const [salt,want]=h.split(":");return (await hashPass(p,salt)).split(":")[1]===want}
 async function body(r){try{return await r.json()}catch{return null}}
+const validEmail=e=>typeof e==="string"&&e.length<=254&&/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
 async function loginAllowed(env,email,ip){
   const now=Math.floor(Date.now()/1000),windowSeconds=15*60;
   const keys=[{key:await sha(email.toLowerCase()+"|"+ip),limit:5},{key:await sha("ip|"+ip),limit:30}];
@@ -65,7 +66,7 @@ if(!["GET","HEAD","OPTIONS"].includes(r.method)){
 if(r.method==="POST"&&p==="/api/auth/bootstrap"){
  const b=await body(r);
  if(!env.BOOTSTRAP_ADMIN_PASSWORD||typeof b?.bootstrapPassword!=="string"||b.bootstrapPassword!==env.BOOTSTRAP_ADMIN_PASSWORD)return json({error:"Bootstrap tidak valid"},403);
- if(typeof b.name!=="string"||typeof b.email!=="string"||typeof b.password!=="string"||b.name.trim().length<2||b.name.length>100||b.email.trim().length<5||b.email.length>254||b.password.length<12||b.password.length>1024)return json({error:"Nama, email, atau password tidak memenuhi ketentuan"},400);
+ if(typeof b.name!=="string"||typeof b.email!=="string"||typeof b.password!=="string"||b.name.trim().length<2||b.name.length>100||!validEmail(b.email.trim())||b.password.length<12||b.password.length>1024)return json({error:"Nama, email, atau password tidak memenuhi ketentuan"},400);
  const email=b.email.trim().toLowerCase();
  try{
   const made=await env.DB.prepare("INSERT INTO users(id,name,email,password_hash,role) SELECT ?,?,?,?,'ADMIN' WHERE NOT EXISTS (SELECT 1 FROM users WHERE role='ADMIN')").bind(uid(),b.name.trim(),email,await hashPass(b.password)).run();
@@ -119,7 +120,7 @@ if(p==="/api/admin/users"&&r.method==="GET"){
 if(p==="/api/admin/users"&&r.method==="POST"){
  if(user.role!=="ADMIN")return json({error:"Hanya admin"},403);
  const b=await body(r);
- if(typeof b?.name!=="string"||typeof b?.email!=="string"||typeof b?.password!=="string"||!["CUSTOMER","COURIER"].includes(b.role)||b.name.trim().length<2||b.name.length>100||b.email.trim().length<5||b.email.length>254||b.password.length<12||b.password.length>1024)return json({error:"Nama, email, role, atau password tidak valid. Password minimal 12 karakter."},400);
+ if(typeof b?.name!=="string"||typeof b?.email!=="string"||typeof b?.password!=="string"||!["CUSTOMER","COURIER"].includes(b.role)||b.name.trim().length<2||b.name.length>100||!validEmail(b.email.trim())||b.password.length<12||b.password.length>1024)return json({error:"Nama, email, role, atau password tidak valid. Password minimal 12 karakter."},400);
  const id=uid(),email=b.email.trim().toLowerCase();
  try{
   await env.DB.prepare("INSERT INTO users(id,name,email,phone,password_hash,role) VALUES(?,?,?,?,?,?)").bind(id,b.name.trim(),email,typeof b.phone==="string"?b.phone.trim().slice(0,30):null,await hashPass(b.password),b.role).run();
@@ -195,11 +196,12 @@ if(m&&r.method==="PATCH"){
  if(!old)return json({error:"Order tidak ditemukan"},404);
  if(user.role==="COURIER"&&old.courier_id!==user.id)return json({error:"Order ini bukan tugas Anda"},403);
  if(user.role==="COURIER"&&old.status!=="PROCESS"&&!(old.status==="ON_TRIP"&&b.status==="TRIP_COMPLETED"))return json({error:"Status order belum memungkinkan diperbarui oleh kurir"},409);
- if(user.role==="ADMIN"&&old.status==="SUCCESS")return json({error:"Order yang sudah selesai tidak dapat diubah"},409);
- const completed=["TRIP_COMPLETED","SUCCESS"].includes(b.status)?",completed_at=CURRENT_TIMESTAMP":"";
- const cancelled=b.status==="CANCEL"?",cancelled_at=CURRENT_TIMESTAMP":"";
+ const transitions={NEW_ORDER:["VERIFIED","CANCEL"],VERIFIED:["PROCESS","PENDING_PAYMENT","CANCEL","RESCHEDULE"],PENDING_PAYMENT:["VERIFIED","CANCEL"],PROCESS:["ON_TRIP","CANCEL","RESCHEDULE"],ON_TRIP:["TRIP_COMPLETED","CANCEL"],TRIP_COMPLETED:["SUCCESS"],RESCHEDULE:["VERIFIED","PROCESS","CANCEL"],SUCCESS:[],CANCEL:[]};
+ if(user.role==="ADMIN"&&!(transitions[old.status]||[]).includes(b.status))return json({error:"Perubahan status tidak sesuai alur order saat ini"},409);
+ const completed=["TRIP_COMPLETED","SUCCESS"].includes(b.status)?"CURRENT_TIMESTAMP":"NULL";
+ const cancelled=b.status==="CANCEL"?"CURRENT_TIMESTAMP":"NULL";
  await env.DB.batch([
-  env.DB.prepare("UPDATE orders SET status=?,updated_at=CURRENT_TIMESTAMP"+completed+cancelled+" WHERE id=?").bind(b.status,m[1]),
+  env.DB.prepare("UPDATE orders SET status=?,updated_at=CURRENT_TIMESTAMP,completed_at="+completed+",cancelled_at="+cancelled+" WHERE id=?").bind(b.status,m[1]),
   env.DB.prepare("INSERT INTO order_events(id,order_id,actor_id,from_status,to_status,note) VALUES(?,?,?,?,?,?)").bind(uid(),m[1],user.id,old.status,b.status,typeof b.note==="string"?b.note.slice(0,500):null),
   env.DB.prepare("INSERT INTO audit_logs(id,actor_id,action,entity_type,entity_id,detail) VALUES(?,?,?,?,?,?)").bind(uid(),user.id,"ORDER_STATUS_CHANGED","ORDER",m[1],old.status+" -> "+b.status)
  ]);
