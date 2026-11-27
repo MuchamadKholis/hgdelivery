@@ -63,7 +63,7 @@ D1 stores the Drive file ID in `order_proofs.object_key`. Do not store OAuth tok
 - Keep the Google OAuth client secret and refresh token as Cloudflare secrets only.
 - Keep the Drive folder private; do not use `anyone` permissions.
 - Restrict the OAuth consent screen to the intended test users while testing.
-- Before production, add request rate limits, CSRF/origin checks, audit logging, deletion/retention rules, and upload malware/content validation.
+- The current branch includes login rate limits, same-origin checks for state-changing API requests, and an audit entry for first-admin creation. Deletion/retention rules, upload malware/content validation, and broader authorization and end-to-end tests remain outstanding.
 - The current endpoint enforces role/order access and an 8 MB image size/type limit, but the app is still a development build. Do not upload real customer documents until the full security review and end-to-end tests are complete.
 - If OAuth consent remains in Testing, refresh-token validity can be limited by Google's testing-mode policy. Publish/configure the consent screen appropriately before long-term production use.
 
@@ -78,7 +78,7 @@ The Worker also requires a one-time bootstrap secret before the first administra
 wrangler.cmd secret put BOOTSTRAP_ADMIN_PASSWORD
 ```
 
-2. After the Worker is deployed for a controlled test, send a POST request to `/api/auth/bootstrap` with JSON fields `bootstrapPassword`, `name`, `email`, and `password`. The admin password must be at least 12 characters. Keep the bootstrap secret separate from the admin password.
+2. After the Worker is deployed for a controlled test, open the app login page and expand **Pengaturan awal: buat admin pertama**. Enter the bootstrap secret, admin name, email, and a password of at least 12 characters. Keep the bootstrap secret separate from the admin password. The secret is sent only to the Worker and is not saved by the page.
 3. Immediately remove the bootstrap secret after the first admin is created:
 
 ```powershell
