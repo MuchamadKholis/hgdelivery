@@ -4,6 +4,22 @@ async function sha(s){return hex(await crypto.subtle.digest("SHA-256",new TextEn
 async function hashPass(p,salt=uid()){const k=await crypto.subtle.importKey("raw",new TextEncoder().encode(p),"PBKDF2",false,["deriveBits"]);const bits=await crypto.subtle.deriveBits({name:"PBKDF2",salt:new TextEncoder().encode(salt),iterations:310000,hash:"SHA-256"},k,256);return salt+":"+hex(bits)}
 async function validPass(p,h){const [salt,want]=h.split(":");return (await hashPass(p,salt)).split(":")[1]===want}
 async function body(r){try{return await r.json()}catch{return null}}
+async function loginAllowed(env,email,ip){
+  const key=await sha(email.toLowerCase()+"|"+ip);
+  const now=Math.floor(Date.now()/1000),windowSeconds=15*60;
+  const row=await env.DB.prepare("SELECT window_started_at,attempts FROM auth_login_limits WHERE limit_key=?").bind(key).first();
+  if(!row||now-row.window_started_at>=windowSeconds){
+    await env.DB.prepare("INSERT INTO auth_login_limits(limit_key,window_started_at,attempts) VALUES(?,?,1) ON CONFLICT(limit_key) DO UPDATE SET window_started_at=excluded.window_started_at,attempts=1,updated_at=CURRENT_TIMESTAMP").bind(key,now).run();
+    return true;
+  }
+  if(row.attempts>=5)return false;
+  await env.DB.prepare("UPDATE auth_login_limits SET attempts=attempts+1,updated_at=CURRENT_TIMESTAMP WHERE limit_key=?").bind(key).run();
+  return true;
+}
+async function clearLoginLimit(env,email,ip){
+  const key=await sha(email.toLowerCase()+"|"+ip);
+  await env.DB.prepare("DELETE FROM auth_login_limits WHERE limit_key=?").bind(key).run();
+}
 const cookie=(v,n)=>"hg_session="+v+"; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age="+n;
 async function userFrom(r,env){const t=(r.headers.get("cookie")||"").split(";").map(x=>x.trim()).find(x=>x.startsWith("hg_session="))?.slice(11);if(!t)return null;return env.DB.prepare("SELECT u.id,u.name,u.email,u.phone,u.role FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires_at>? AND u.active=1").bind(await sha(t),new Date().toISOString()).first()}
 
@@ -40,9 +56,35 @@ async function uploadDriveProof(env,file,orderId){
   const sent=await fetch(session,{method:"PUT",headers:{"content-type":file.type},body:file.stream()});
   const meta=await sent.json();if(!sent.ok||!meta.id)throw new Error("Upload foto ke Google Drive gagal");return meta;
 }
-\nasync function api(r,env){const u=new URL(r.url),p=u.pathname;
-if(r.method==="POST"&&p==="/api/auth/bootstrap"){const b=await body(r);if(!env.BOOTSTRAP_ADMIN_PASSWORD||b?.bootstrapPassword!==env.BOOTSTRAP_ADMIN_PASSWORD)return json({error:"Bootstrap tidak valid"},403);const c=await env.DB.prepare("SELECT COUNT(*) n FROM users WHERE role='ADMIN'").first();if(c.n)return json({error:"Admin sudah dibuat"},409);if(!b.name||!b.email||!b.password||b.password.length<12)return json({error:"Nama, email dan password minimal 12 karakter wajib"},400);await env.DB.prepare("INSERT INTO users(id,name,email,password_hash,role) VALUES(?,?,?,?, 'ADMIN')").bind(uid(),b.name,b.email.toLowerCase(),await hashPass(b.password)).run();return json({ok:true,message:"Admin dibuat. Hapus secret bootstrap sekarang."},201)}
-if(r.method==="POST"&&p==="/api/auth/login"){const b=await body(r);if(!b?.email||!b?.password)return json({error:"Email dan password wajib"},400);const a=await env.DB.prepare("SELECT * FROM users WHERE email=? AND active=1").bind(b.email.toLowerCase()).first();if(!a||!(await validPass(b.password,a.password_hash)))return json({error:"Email atau password salah"},401);const t=hex(crypto.getRandomValues(new Uint8Array(32))),exp=new Date(Date.now()+604800000).toISOString();await env.DB.prepare("INSERT INTO sessions(token_hash,user_id,expires_at) VALUES(?,?,?)").bind(await sha(t),a.id,exp).run();return json({user:{id:a.id,name:a.name,email:a.email,role:a.role}},200,{"set-cookie":cookie(t,604800)})}
+
+async function api(r,env){const u=new URL(r.url),p=u.pathname;
+if(!["GET","HEAD","OPTIONS"].includes(r.method)){
+  const origin=r.headers.get("Origin");
+  if(!origin||origin!==u.origin)return json({error:"Permintaan lintas situs ditolak"},403);
+}
+if(r.method==="POST"&&p==="/api/auth/bootstrap"){
+ const b=await body(r);
+ if(!env.BOOTSTRAP_ADMIN_PASSWORD||typeof b?.bootstrapPassword!=="string"||b.bootstrapPassword!==env.BOOTSTRAP_ADMIN_PASSWORD)return json({error:"Bootstrap tidak valid"},403);
+ const c=await env.DB.prepare("SELECT COUNT(*) n FROM users WHERE role='ADMIN'").first();if(c.n)return json({error:"Admin sudah dibuat"},409);
+ if(typeof b.name!=="string"||typeof b.email!=="string"||typeof b.password!=="string"||b.name.trim().length<2||b.name.length>100||b.email.length>254||b.password.length<12||b.password.length>1024)return json({error:"Nama, email, atau password tidak memenuhi ketentuan"},400);
+ const email=b.email.trim().toLowerCase();
+ try{await env.DB.prepare("INSERT INTO users(id,name,email,password_hash,role) VALUES(?,?,?,?, 'ADMIN')").bind(uid(),b.name.trim(),email,await hashPass(b.password)).run();}
+ catch{return json({error:"Email sudah digunakan atau data admin tidak valid"},409)}
+ await env.DB.prepare("INSERT INTO audit_logs(id,action,entity_type,detail) VALUES(?,'ADMIN_BOOTSTRAP','USER',?)").bind(uid(),email).run();
+ return json({ok:true,message:"Admin berhasil dibuat. Hapus secret BOOTSTRAP_ADMIN_PASSWORD sekarang."},201);
+}
+if(r.method==="POST"&&p==="/api/auth/login"){
+ const b=await body(r);if(!b?.email||!b?.password||typeof b.email!=="string"||typeof b.password!=="string")return json({error:"Email dan password wajib"},400);
+ const email=b.email.trim().toLowerCase();if(email.length>254||b.password.length>1024)return json({error:"Data login tidak valid"},400);
+ const ip=r.headers.get("CF-Connecting-IP")||"unknown";
+ if(!(await loginAllowed(env,email,ip)))return json({error:"Terlalu banyak percobaan login. Coba lagi dalam 15 menit."},429,{"retry-after":"900"});
+ const a=await env.DB.prepare("SELECT * FROM users WHERE email=? AND active=1").bind(email).first();
+ if(!a||!(await validPass(b.password,a.password_hash)))return json({error:"Email atau password salah"},401);
+ await clearLoginLimit(env,email,ip);
+ const t=hex(crypto.getRandomValues(new Uint8Array(32))),exp=new Date(Date.now()+604800000).toISOString();
+ await env.DB.prepare("INSERT INTO sessions(token_hash,user_id,expires_at) VALUES(?,?,?)").bind(await sha(t),a.id,exp).run();
+ return json({user:{id:a.id,name:a.name,email:a.email,role:a.role}},200,{"set-cookie":cookie(t,604800)});
+}
 if(r.method==="POST"&&p==="/api/auth/logout"){const t=(r.headers.get("cookie")||"").split(";").map(x=>x.trim()).find(x=>x.startsWith("hg_session="))?.slice(11);if(t)await env.DB.prepare("DELETE FROM sessions WHERE token_hash=?").bind(await sha(t)).run();return json({ok:true},200,{"set-cookie":cookie("",0)})}
 const user=await userFrom(r,env);if(p==="/api/auth/me"&&r.method==="GET")return user?json({user}):json({error:"Unauthorized"},401);if(!user)return json({error:"Silakan login"},401);
 const proofUploadParts=p.split("/");
