@@ -6,11 +6,67 @@ async function validPass(p,h){const [salt,want]=h.split(":");return (await hashP
 async function body(r){try{return await r.json()}catch{return null}}
 const cookie=(v,n)=>"hg_session="+v+"; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age="+n;
 async function userFrom(r,env){const t=(r.headers.get("cookie")||"").split(";").map(x=>x.trim()).find(x=>x.startsWith("hg_session="))?.slice(11);if(!t)return null;return env.DB.prepare("SELECT u.id,u.name,u.email,u.phone,u.role FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires_at>? AND u.active=1").bind(await sha(t),new Date().toISOString()).first()}
-async function api(r,env){const u=new URL(r.url),p=u.pathname;
+
+const DRIVE_API="https://www.googleapis.com/drive/v3";
+async function googleAccessToken(env){
+  if(!env.GOOGLE_CLIENT_ID||!env.GOOGLE_CLIENT_SECRET||!env.GOOGLE_REFRESH_TOKEN)throw new Error("Google Drive belum dikonfigurasi");
+  const form=new URLSearchParams({client_id:env.GOOGLE_CLIENT_ID,client_secret:env.GOOGLE_CLIENT_SECRET,refresh_token:env.GOOGLE_REFRESH_TOKEN,grant_type:"refresh_token"});
+  const res=await fetch("https://oauth2.googleapis.com/token",{method:"POST",headers:{"content-type":"application/x-www-form-urlencoded"},body:form});
+  const data=await res.json();if(!res.ok||!data.access_token)throw new Error("Gagal memperoleh akses Google Drive");return data.access_token;
+}
+async function driveRequest(env,path,options={}){
+  const token=await googleAccessToken(env);
+  return fetch(DRIVE_API+path,{...options,headers:{authorization:"Bearer "+token,...(options.headers||{})}});
+}
+async function driveProofFolder(env){
+  const row=await env.DB.prepare("SELECT setting_value FROM app_settings WHERE setting_key='google_drive_proofs_folder_id'").first();
+  if(row?.setting_value)return row.setting_value;
+  const res=await driveRequest(env,"/files?fields=files(id,name,mimeType)&pageSize=100&q="+encodeURIComponent("mimeType='application/vnd.google-apps.folder' and name='HGDelivery Proofs' and trashed=false"));
+  const data=await res.json();if(!res.ok)throw new Error("Tidak bisa mencari folder Google Drive");
+  let folder=data.files?.[0];
+  if(!folder){
+    const made=await driveRequest(env,"/files?fields=id,name",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({name:"HGDelivery Proofs",mimeType:"application/vnd.google-apps.folder"})});
+    folder=await made.json();if(!made.ok||!folder.id)throw new Error("Tidak bisa membuat folder bukti HGDelivery");
+  }
+  await env.DB.prepare("INSERT INTO app_settings(setting_key,setting_value) VALUES('google_drive_proofs_folder_id',?) ON CONFLICT(setting_key) DO UPDATE SET setting_value=excluded.setting_value,updated_at=CURRENT_TIMESTAMP").bind(folder.id).run();
+  return folder.id;
+}
+async function uploadDriveProof(env,file,orderId){
+  const folderId=await driveProofFolder(env),token=await googleAccessToken(env);
+  const safeName=(file.name||"proof").replace(/[^a-zA-Z0-9._-]/g,"_").slice(0,100);
+  const name=orderId+"_"+Date.now()+"_"+safeName;
+  const init=await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id,name,mimeType,size",{method:"POST",headers:{authorization:"Bearer "+token,"content-type":"application/json","x-upload-content-type":file.type,"x-upload-content-length":String(file.size)},body:JSON.stringify({name,mimeType:file.type,parents:[folderId]})});
+  const session=init.headers.get("location");if(!init.ok||!session)throw new Error("Google Drive menolak memulai upload");
+  const sent=await fetch(session,{method:"PUT",headers:{"content-type":file.type},body:file.stream()});
+  const meta=await sent.json();if(!sent.ok||!meta.id)throw new Error("Upload foto ke Google Drive gagal");return meta;
+}
+\nasync function api(r,env){const u=new URL(r.url),p=u.pathname;
 if(r.method==="POST"&&p==="/api/auth/bootstrap"){const b=await body(r);if(!env.BOOTSTRAP_ADMIN_PASSWORD||b?.bootstrapPassword!==env.BOOTSTRAP_ADMIN_PASSWORD)return json({error:"Bootstrap tidak valid"},403);const c=await env.DB.prepare("SELECT COUNT(*) n FROM users WHERE role='ADMIN'").first();if(c.n)return json({error:"Admin sudah dibuat"},409);if(!b.name||!b.email||!b.password||b.password.length<12)return json({error:"Nama, email dan password minimal 12 karakter wajib"},400);await env.DB.prepare("INSERT INTO users(id,name,email,password_hash,role) VALUES(?,?,?,?, 'ADMIN')").bind(uid(),b.name,b.email.toLowerCase(),await hashPass(b.password)).run();return json({ok:true,message:"Admin dibuat. Hapus secret bootstrap sekarang."},201)}
 if(r.method==="POST"&&p==="/api/auth/login"){const b=await body(r);if(!b?.email||!b?.password)return json({error:"Email dan password wajib"},400);const a=await env.DB.prepare("SELECT * FROM users WHERE email=? AND active=1").bind(b.email.toLowerCase()).first();if(!a||!(await validPass(b.password,a.password_hash)))return json({error:"Email atau password salah"},401);const t=hex(crypto.getRandomValues(new Uint8Array(32))),exp=new Date(Date.now()+604800000).toISOString();await env.DB.prepare("INSERT INTO sessions(token_hash,user_id,expires_at) VALUES(?,?,?)").bind(await sha(t),a.id,exp).run();return json({user:{id:a.id,name:a.name,email:a.email,role:a.role}},200,{"set-cookie":cookie(t,604800)})}
 if(r.method==="POST"&&p==="/api/auth/logout"){const t=(r.headers.get("cookie")||"").split(";").map(x=>x.trim()).find(x=>x.startsWith("hg_session="))?.slice(11);if(t)await env.DB.prepare("DELETE FROM sessions WHERE token_hash=?").bind(await sha(t)).run();return json({ok:true},200,{"set-cookie":cookie("",0)})}
 const user=await userFrom(r,env);if(p==="/api/auth/me"&&r.method==="GET")return user?json({user}):json({error:"Unauthorized"},401);if(!user)return json({error:"Silakan login"},401);
+if(p.match(/^\\/api\\/orders\\/[\\w-]+\\/proofs$/)&&r.method==="POST"){
+ const orderId=p.split("/")[3],order=await env.DB.prepare("SELECT id,customer_id,courier_id FROM orders WHERE id=?").bind(orderId).first();
+ if(!order)return json({error:"Order tidak ditemukan"},404);
+ if(user.role!=="ADMIN"&&!(user.role==="COURIER"&&order.courier_id===user.id))return json({error:"Tidak berhak mengunggah bukti untuk order ini"},403);
+ const form=await r.formData(),file=form.get("file"),label=String(form.get("label")||"Bukti").slice(0,80);
+ if(!file||typeof file.arrayBuffer!=="function")return json({error:"File foto wajib disertakan"},400);
+ if(!["image/jpeg","image/png","image/webp"].includes(file.type))return json({error:"Format foto harus JPG, PNG, atau WebP"},415);
+ if(file.size<1||file.size>8*1024*1024)return json({error:"Ukuran foto maksimal 8 MB"},413);
+ const meta=await uploadDriveProof(env,file,orderId),proofId=uid();
+ await env.DB.prepare("INSERT INTO order_proofs(id,order_id,uploaded_by,object_key,content_type,size_bytes,label) VALUES(?,?,?,?,?,?,?)").bind(proofId,orderId,user.id,meta.id,file.type,file.size,label).run();
+ return json({ok:true,proof:{id:proofId,label,content_type:file.type,size_bytes:file.size,created_at:new Date().toISOString()}},201);
+}
+const proofMatch=p.match(/^\\/api\\/proofs\\/([\\w-]+)$/);
+if(proofMatch&&r.method==="GET"){
+ const proof=await env.DB.prepare("SELECT p.object_key,p.content_type,p.size_bytes,o.customer_id,o.courier_id FROM order_proofs p JOIN orders o ON o.id=p.order_id WHERE p.id=?").bind(proofMatch[1]).first();
+ if(!proof)return json({error:"Bukti tidak ditemukan"},404);
+ if(user.role!=="ADMIN"&&proof.customer_id!==user.id&&proof.courier_id!==user.id)return json({error:"Tidak berhak melihat bukti ini"},403);
+ const file=await driveRequest(env,"/files/"+encodeURIComponent(proof.object_key)+"?alt=media");
+ if(!file.ok)return json({error:"Gagal mengambil foto dari Google Drive"},502);
+ return new Response(file.body,{headers:{"content-type":proof.content_type,"content-length":String(proof.size_bytes),"cache-control":"private, no-store","x-content-type-options":"nosniff","content-disposition":"inline"}});
+}
+
 if(p==="/api/orders"&&r.method==="GET"){let q=user.role==="ADMIN"?env.DB.prepare("SELECT * FROM orders ORDER BY created_at DESC LIMIT 200"):user.role==="COURIER"?env.DB.prepare("SELECT * FROM orders WHERE courier_id=? ORDER BY created_at DESC LIMIT 200").bind(user.id):env.DB.prepare("SELECT * FROM orders WHERE customer_id=? ORDER BY created_at DESC LIMIT 100").bind(user.id);const d=await q.all();return json({orders:d.results})}
 if(p==="/api/orders"&&r.method==="POST"){const b=await body(r);if(!b||!["RIDE","SEND"].includes(b.type)||![b.pickup_lat,b.pickup_lng,b.destination_lat,b.destination_lng].every(Number.isFinite)||!b.pickup_label||!b.destination_label)return json({error:"Data order dan lokasi belum lengkap"},400);const oid=uid(),code="HG-"+Date.now().toString(36).toUpperCase()+"-"+uid().slice(0,4).toUpperCase();await env.DB.prepare("INSERT INTO orders(id,order_code,type,customer_id,status,pickup_label,pickup_lat,pickup_lng,destination_label,destination_lat,destination_lng,vehicle,notes) VALUES(?,?,?,?,'NEW_ORDER',?,?,?,?,?,?,?,?)").bind(oid,code,b.type,user.id,b.pickup_label,b.pickup_lat,b.pickup_lng,b.destination_label,b.destination_lat,b.destination_lng,b.vehicle||null,b.notes||null).run();await env.DB.prepare("INSERT INTO order_events(id,order_id,actor_id,to_status,note) VALUES(?,?,?,'NEW_ORDER','Order dibuat')").bind(uid(),oid,user.id).run();return json({ok:true,order_code:code},201)}
 const m=p.match(/^\/api\/orders\/([\w-]+)\/status$/);if(m&&r.method==="PATCH"){if(user.role!=="ADMIN")return json({error:"Hanya admin"},403);const b=await body(r),allowed=["VERIFIED","PROCESS","ON_TRIP","TRIP_COMPLETED","SUCCESS","RESCHEDULE","CANCEL","PENDING_PAYMENT"];if(!allowed.includes(b?.status))return json({error:"Status tidak valid"},400);const old=await env.DB.prepare("SELECT status FROM orders WHERE id=?").bind(m[1]).first();if(!old)return json({error:"Order tidak ditemukan"},404);await env.DB.batch([env.DB.prepare("UPDATE orders SET status=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(b.status,m[1]),env.DB.prepare("INSERT INTO order_events(id,order_id,actor_id,from_status,to_status,note) VALUES(?,?,?,?,?,?)").bind(uid(),m[1],user.id,old.status,b.status,b.note||null)]);return json({ok:true})}
