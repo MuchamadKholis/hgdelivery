@@ -13,6 +13,13 @@ $("#bootstrapForm").onsubmit=async e=>{e.preventDefault();const v=Object.fromEnt
 $("#logout").onclick=async()=>{await api("/api/auth/logout",{method:"POST"});location.reload()};
 document.querySelectorAll(".tab").forEach(b=>b.onclick=()=>{document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("active",x===b));["new","orders","users","pricing"].forEach(k=>$("#"+k).hidden=b.dataset.tab!==k);if(b.dataset.tab==="new")setTimeout(()=>Object.values(maps).forEach(x=>x.map.invalidateSize()),80);if(b.dataset.tab==="users")loadUsers();if(b.dataset.tab==="pricing")loadPricing()});
 $("#orderForm").onsubmit=async e=>{e.preventDefault();const v=Object.fromEntries(new FormData(e.target));["pickup_lat","pickup_lng","destination_lat","destination_lng"].forEach(k=>v[k]=Number(v[k]));try{const d=await api("/api/orders",{method:"POST",body:JSON.stringify(v)});$("#orderMessage").textContent="Order berhasil dibuat: "+d.order_code;loadOrders()}catch(x){$("#orderMessage").textContent=x.message}};
+async function loadSummary(){
+ try{
+  const d=await api("/api/admin/summary"),root=$("#dashboardSummary");root.replaceChildren();
+  const items=[["Pengguna aktif",d.users],["Kurir aktif",d.active_couriers],["Total order",d.orders],["Order berjalan",d.active_orders],["Selesai",d.completed],["Dibatalkan",d.cancelled]];
+  items.forEach(([label,value])=>{const el=document.createElement("article");el.className="order";const title=document.createElement("small");title.textContent=label;const number=document.createElement("h2");number.textContent=Number(value).toLocaleString("id-ID");el.append(title,number);root.append(el)});
+ }catch(e){$("#dashboardSummary").textContent=e.message}
+}
 async function loadOrders(){
  try{
   const d=await api("/api/orders"),root=$("#orderList");root.replaceChildren();
