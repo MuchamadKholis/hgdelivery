@@ -89,6 +89,21 @@ if(r.method==="POST"&&p==="/api/auth/login"){
 }
 if(r.method==="POST"&&p==="/api/auth/logout"){const t=(r.headers.get("cookie")||"").split(";").map(x=>x.trim()).find(x=>x.startsWith("hg_session="))?.slice(11);if(t)await env.DB.prepare("DELETE FROM sessions WHERE token_hash=?").bind(await sha(t)).run();return json({ok:true},200,{"set-cookie":cookie("",0)})}
 const user=await userFrom(r,env);if(p==="/api/auth/me"&&r.method==="GET")return user?json({user}):json({error:"Unauthorized"},401);if(!user)return json({error:"Silakan login"},401);
+if(r.method==="POST"&&p==="/api/route/estimate"){
+ if(user.role!=="ADMIN"&&user.role!=="CUSTOMER")return json({error:"Fitur estimasi hanya untuk admin dan customer"},403);
+ if(!env.OPENROUTESERVICE_API_KEY)return json({error:"Layanan rute belum diaktifkan. Admin perlu memasang API key OpenRouteService."},503);
+ const b=await body(r),coords=[b?.pickup_lat,b?.pickup_lng,b?.destination_lat,b?.destination_lng];
+ if(!b||!coords.every(v=>typeof v==="number"&&Number.isFinite(v))||Math.abs(b.pickup_lat)>90||Math.abs(b.destination_lat)>90||Math.abs(b.pickup_lng)>180||Math.abs(b.destination_lng)>180)return json({error:"Koordinat lokasi tidak valid"},400);
+ const route=await fetch("https://api.openrouteservice.org/v2/directions/driving-car/geojson",{
+  method:"POST",
+  headers:{"authorization":env.OPENROUTESERVICE_API_KEY,"content-type":"application/json"},
+  body:JSON.stringify({coordinates:[[b.pickup_lng,b.pickup_lat],[b.destination_lng,b.destination_lat]],instructions:false})
+ });
+ const data=await route.json().catch(()=>null);
+ if(!route.ok||!data?.features?.[0]?.properties?.summary)return json({error:route.status===429?"Kuota rute gratis sedang mencapai batas. Coba lagi nanti.":"Rute tidak dapat dihitung. Periksa titik lokasi dan coba lagi."},502);
+ const summary=data.features[0].properties.summary;
+ return json({distance_km:Math.round(summary.distance/10)/100,duration_minutes:Math.max(1,Math.round(summary.duration/60)),geometry:data.features[0].geometry,provider:"OpenRouteService",profile:"driving-car",note:"Estimasi rute jalan mobil. Untuk motor, jarak bisa berbeda; belum digunakan untuk menentukan tarif final.",attribution:"© openrouteservice | © OpenStreetMap contributors"});
+}
 const proofUploadParts=p.split("/");
 if(proofUploadParts.length===5&&proofUploadParts[1]==="api"&&proofUploadParts[2]==="orders"&&proofUploadParts[4]==="proofs"&&r.method==="POST"){
  const orderId=proofUploadParts[3],order=await env.DB.prepare("SELECT id,customer_id,courier_id FROM orders WHERE id=?").bind(orderId).first();
