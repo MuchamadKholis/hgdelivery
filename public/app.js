@@ -46,11 +46,11 @@ async function loadSummary(){
 }
 async function loadOrders(){
  try{
-  const d=await api("/api/orders"),root=$("#orderList");root.replaceChildren();
-  if(!d.orders.length){root.innerHTML='<div class="empty">Belum ada order.</div>';return}
+  const d=await api("/api/orders"),root=$("#orderList");root.replaceChildren();let orders=d.orders;const sf=$("#filterService")?.value||"ALL",st=$("#filterStatus")?.value||"ALL";if(sf!=="ALL")orders=orders.filter(o=>o.type===sf);if(st!=="ALL")orders=orders.filter(o=>o.status===st);
+  if(!orders.length){root.innerHTML='<div class="empty">Belum ada order.</div>';return}
   let couriers=[];
   if(me.role==="ADMIN"){const ud=await api("/api/admin/users");couriers=ud.users.filter(x=>x.role==="COURIER"&&x.active)}
-  d.orders.forEach(o=>{
+  orders.forEach(o=>{
    const el=document.createElement("article");el.className="order";
    const h=document.createElement("div");h.className="orderhead";
    const b=document.createElement("b");b.textContent=o.order_code+" · "+o.type;
@@ -132,4 +132,4 @@ async function loadPricing(){
 }
 $("#pricingForm").onsubmit=async e=>{e.preventDefault();const v=Object.fromEntries(new FormData(e.target));v.rate_per_km=Number(v.rate_per_km);v.minimum_price=Number(v.minimum_price);const msg=$("#pricingMessage");msg.textContent="";try{await api("/api/admin/pricing",{method:"POST",body:JSON.stringify(v)});msg.textContent="Tarif berhasil disimpan.";loadPricing()}catch(x){msg.textContent=x.message}};
 $("#refreshPricing").onclick=loadPricing;
-$("#refresh").onclick=loadOrders;(async()=>{try{const d=await api("/api/auth/me");start(d.user)}catch{}})();
+$("#refresh").onclick=loadOrders;$("#filterService").onchange=loadOrders;$("#filterStatus").onchange=loadOrders;(async()=>{try{const d=await api("/api/auth/me");start(d.user)}catch{}})();
