@@ -1,6 +1,6 @@
 const $=s=>document.querySelector(s);let me=null;const maps={};const defaults={pickup:[-6.3422,106.7383],destination:[-6.2966,106.7124]};
 async function api(path,opt={}){const r=await fetch(path,{...opt,credentials:"same-origin",headers:{"content-type":"application/json",...(opt.headers||{})}});const d=await r.json().catch(()=>({}));if(!r.ok)throw Error(d.error||"Permintaan gagal");return d}
-function start(user){me=user;$("#login").hidden=true;$("#app").hidden=false;$("#welcomeName").textContent=user.name;$("#userbar").textContent=user.role;initMaps();loadOrders()}
+function start(user){me=user;$("#login").hidden=true;$("#app").hidden=false;$("#welcomeName").textContent=user.name;$("#userbar").textContent=user.role;document.querySelectorAll(".admin-only").forEach(x=>x.hidden=user.role!=="ADMIN");initMaps();loadOrders()}
 function initMaps(){for(const key of ["pickup","destination"]){if(maps[key]){maps[key].map.invalidateSize();continue}const map=L.map(key+"Map").setView(defaults[key],13);L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap"}).addTo(map);const marker=L.marker(defaults[key],{draggable:true}).addTo(map);maps[key]={map,marker};marker.on("dragend",()=>{const p=marker.getLatLng();setPoint(key,p.lat,p.lng,true)});map.on("click",e=>{marker.setLatLng(e.latlng);setPoint(key,e.latlng.lat,e.latlng.lng,true)});setPoint(key,defaults[key][0],defaults[key][1],true)}}
 async function reverse(lat,lng){try{const r=await fetch("https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat="+lat+"&lon="+lng);const d=await r.json();return d.display_name||lat.toFixed(6)+", "+lng.toFixed(6)}catch{return lat.toFixed(6)+", "+lng.toFixed(6)}}
 async function setPoint(key,lat,lng,rev){maps[key].marker.setLatLng([lat,lng]);$("#"+key+"Lat").value=lat;$("#"+key+"Lng").value=lng;if(rev)$("#"+key+"Label").value=await reverse(lat,lng)}
@@ -10,7 +10,50 @@ document.querySelectorAll("[data-gps]").forEach(b=>b.onclick=()=>{const k=b.data
 $("#loginForm").onsubmit=async e=>{e.preventDefault();$("#loginError").textContent="";try{const d=await api("/api/auth/login",{method:"POST",body:JSON.stringify(Object.fromEntries(new FormData(e.target)))});start(d.user)}catch(x){$("#loginError").textContent=x.message}};
 $("#bootstrapForm").onsubmit=async e=>{e.preventDefault();const v=Object.fromEntries(new FormData(e.target));const msg=$("#bootstrapMessage");msg.textContent="";if(v.password!==v.passwordConfirm){msg.textContent="Konfirmasi password tidak sama.";return}delete v.passwordConfirm;try{const d=await api("/api/auth/bootstrap",{method:"POST",body:JSON.stringify(v)});e.target.reset();msg.textContent=d.message+" Setelah itu jalankan perintah penghapusan secret di Cloudflare."; }catch(x){msg.textContent=x.message}};
 $("#logout").onclick=async()=>{await api("/api/auth/logout",{method:"POST"});location.reload()};
-document.querySelectorAll(".tab").forEach(b=>b.onclick=()=>{document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("active",x===b));$("#new").hidden=b.dataset.tab!=="new";$("#orders").hidden=b.dataset.tab!=="orders";if(b.dataset.tab==="new")setTimeout(()=>Object.values(maps).forEach(x=>x.map.invalidateSize()),80)});
+document.querySelectorAll(".tab").forEach(b=>b.onclick=()=>{document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("active",x===b));["new","orders","users"].forEach(k=>$("#"+k).hidden=b.dataset.tab!==k);if(b.dataset.tab==="new")setTimeout(()=>Object.values(maps).forEach(x=>x.map.invalidateSize()),80);if(b.dataset.tab==="users")loadUsers()});
 $("#orderForm").onsubmit=async e=>{e.preventDefault();const v=Object.fromEntries(new FormData(e.target));["pickup_lat","pickup_lng","destination_lat","destination_lng"].forEach(k=>v[k]=Number(v[k]));try{const d=await api("/api/orders",{method:"POST",body:JSON.stringify(v)});$("#orderMessage").textContent="Order berhasil dibuat: "+d.order_code;loadOrders()}catch(x){$("#orderMessage").textContent=x.message}};
-async function loadOrders(){try{const d=await api("/api/orders"),root=$("#orderList");root.replaceChildren();if(!d.orders.length){root.innerHTML='<div class="empty">Belum ada order.</div>';return}d.orders.forEach(o=>{const el=document.createElement("article");el.className="order";const h=document.createElement("div");h.className="orderhead";const b=document.createElement("b");b.textContent=o.order_code+" · "+o.type;const s=document.createElement("span");s.className="pill";s.textContent=o.status;h.append(b,s);const p=document.createElement("p");p.textContent=o.pickup_label+" → "+o.destination_label;const t=document.createElement("small");t.textContent=new Date(o.created_at+"Z").toLocaleString("id-ID");el.append(h,p,t);root.append(el)})}catch(e){$("#orderList").textContent=e.message}}
+async function loadOrders(){
+ try{
+  const d=await api("/api/orders"),root=$("#orderList");root.replaceChildren();
+  if(!d.orders.length){root.innerHTML='<div class="empty">Belum ada order.</div>';return}
+  let couriers=[];
+  if(me.role==="ADMIN"){const ud=await api("/api/admin/users");couriers=ud.users.filter(x=>x.role==="COURIER"&&x.active)}
+  d.orders.forEach(o=>{
+   const el=document.createElement("article");el.className="order";
+   const h=document.createElement("div");h.className="orderhead";
+   const b=document.createElement("b");b.textContent=o.order_code+" · "+o.type;
+   const s=document.createElement("span");s.className="pill";s.textContent=o.status;h.append(b,s);
+   const p=document.createElement("p");p.textContent=o.pickup_label+" → "+o.destination_label;
+   const t=document.createElement("small");t.textContent=new Date(o.created_at+"Z").toLocaleString("id-ID");el.append(h,p,t);
+   if(me.role==="ADMIN"){
+    const line=document.createElement("div");line.className="assignline";
+    const sel=document.createElement("select");sel.setAttribute("aria-label","Pilih kurir untuk "+o.order_code);
+    const empty=document.createElement("option");empty.value="";empty.textContent="Pilih kurir aktif";sel.append(empty);
+    couriers.forEach(c=>{const op=document.createElement("option");op.value=c.id;op.textContent=c.name+" · "+c.email;if(c.id===o.courier_id)op.selected=true;sel.append(op)});
+    const btn=document.createElement("button");btn.type="button";btn.className="secondary";btn.textContent="Tugaskan";
+    btn.onclick=async()=>{if(!sel.value){alert("Pilih kurir terlebih dahulu.");return}btn.disabled=true;try{await api("/api/orders/"+encodeURIComponent(o.id)+"/assign",{method:"PATCH",body:JSON.stringify({courierId:sel.value})});btn.textContent="Tersimpan"}catch(e){alert(e.message);btn.disabled=false}};
+    line.append(sel,btn);el.append(line)
+   }
+   root.append(el)
+  })
+ }catch(e){$("#orderList").textContent=e.message}
+}
+async function loadUsers(){
+ try{
+  const d=await api("/api/admin/users"),root=$("#userList");root.replaceChildren();
+  if(!d.users.length){root.innerHTML='<div class="empty">Belum ada pengguna.</div>';return}
+  d.users.forEach(u=>{
+   const el=document.createElement("article");el.className="order";
+   const head=document.createElement("div");head.className="orderhead";
+   const title=document.createElement("b");title.textContent=u.name+" · "+u.role;
+   const status=document.createElement("span");status.className="pill";status.textContent=u.active?"Aktif":"Nonaktif";head.append(title,status);
+   const info=document.createElement("p");info.textContent=u.email+(u.phone?" · "+u.phone:"");
+   const btn=document.createElement("button");btn.type="button";btn.className="secondary";btn.textContent=u.active?"Nonaktifkan":"Aktifkan";btn.disabled=u.id===me.id;
+   btn.onclick=async()=>{btn.disabled=true;try{await api("/api/admin/users/"+encodeURIComponent(u.id)+"/active",{method:"PATCH",body:JSON.stringify({active:!u.active})});loadUsers()}catch(e){alert(e.message);btn.disabled=false}};
+   el.append(head,info,btn);root.append(el)
+  })
+ }catch(e){$("#userList").textContent=e.message}
+}
+$("#userForm").onsubmit=async e=>{e.preventDefault();const msg=$("#userMessage"),v=Object.fromEntries(new FormData(e.target));msg.textContent="";try{await api("/api/admin/users",{method:"POST",body:JSON.stringify(v)});e.target.reset();msg.textContent="Pengguna berhasil dibuat.";loadUsers()}catch(x){msg.textContent=x.message}};
+$("#refreshUsers").onclick=loadUsers;
 $("#refresh").onclick=loadOrders;(async()=>{try{const d=await api("/api/auth/me");start(d.user)}catch{}})();
