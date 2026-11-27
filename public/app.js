@@ -31,6 +31,17 @@ async function loadOrders(){
    const h=document.createElement("div");h.className="orderhead";
    const b=document.createElement("b");b.textContent=o.order_code+" · "+o.type;
    const s=document.createElement("span");s.className="pill";s.textContent=o.status;h.append(b,s);
+   const paymentLine=document.createElement("p");paymentLine.className="payment-status";paymentLine.textContent="Pembayaran: "+(o.payment_status||"UNPAID");el.append(paymentLine);
+   fetch("/api/orders/"+encodeURIComponent(o.id)+"/payments",{credentials:"same-origin"}).then(async res=>{const data=await res.json();if(!res.ok)throw Error(data.error||"Gagal memuat pembayaran");if(data.payments.length){const last=data.payments[0];const detail=document.createElement("small");detail.className="payment-detail";detail.textContent="Tercatat: Rp "+Number(last.amount).toLocaleString("id-ID")+" · "+({CASH:"Tunai",BANK_TRANSFER:"Transfer bank",QRIS:"QRIS",OTHER:"Lainnya"}[last.method]||last.method)+" · "+new Date(last.paid_at+"Z").toLocaleString("id-ID");el.append(detail)}}).catch(()=>{});
+   if(me.role==="ADMIN"&&o.payment_status!=="PAID"){
+    const pay=document.createElement("div");pay.className="payment-entry";
+    const amount=document.createElement("input");amount.type="number";amount.min="1";amount.max="100000000";amount.step="1";amount.placeholder="Nominal diterima (Rp)";
+    const method=document.createElement("select");[["CASH","Tunai"],["BANK_TRANSFER","Transfer bank"],["QRIS","QRIS"],["OTHER","Lainnya"]].forEach(([v,t])=>{const op=document.createElement("option");op.value=v;op.textContent=t;method.append(op)});
+    const reference=document.createElement("input");reference.maxLength=100;reference.placeholder="Referensi transaksi (opsional)";
+    const record=document.createElement("button");record.type="button";record.className="secondary";record.textContent="Catat pembayaran diterima";
+    record.onclick=async()=>{const value=Number(amount.value);if(!Number.isSafeInteger(value)||value<1){alert("Isi nominal pembayaran yang valid.");return}record.disabled=true;try{await api("/api/orders/"+encodeURIComponent(o.id)+"/payments",{method:"POST",body:JSON.stringify({amount:value,method:method.value,reference:reference.value})});await loadOrders()}catch(err){alert(err.message);record.disabled=false}};
+    pay.append(amount,method,reference,record);el.append(pay);
+   }
    const p=document.createElement("p");p.textContent=o.pickup_label+" → "+o.destination_label;
    const t=document.createElement("small");t.textContent=new Date(o.created_at+"Z").toLocaleString("id-ID");el.append(h,p,t);
    if(me.role==="ADMIN"){
