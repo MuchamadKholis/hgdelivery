@@ -156,6 +156,23 @@ if(assignMatch&&r.method==="PATCH"){
  ]);
  return json({ok:true});
 }
+if(p==="/api/admin/pricing"&&r.method==="GET"){
+ if(user.role!=="ADMIN")return json({error:"Hanya admin"},403);
+ const d=await env.DB.prepare("SELECT id,service_type,rate_per_km,minimum_price,effective_from FROM pricing_rules WHERE active=1 ORDER BY service_type").all();
+ return json({rules:d.results});
+}
+if(p==="/api/admin/pricing"&&r.method==="POST"){
+ if(user.role!=="ADMIN")return json({error:"Hanya admin"},403);
+ const b=await body(r),types=["RIDE_MOTOR","RIDE_CAR","SEND"];
+ if(!types.includes(b?.service_type)||!Number.isSafeInteger(b.rate_per_km)||!Number.isSafeInteger(b.minimum_price)||b.rate_per_km<0||b.rate_per_km>10000000||b.minimum_price<0||b.minimum_price>100000000)return json({error:"Jenis layanan atau tarif tidak valid"},400);
+ const id=uid();
+ await env.DB.batch([
+  env.DB.prepare("UPDATE pricing_rules SET active=0 WHERE service_type=? AND active=1").bind(b.service_type),
+  env.DB.prepare("INSERT INTO pricing_rules(id,service_type,rate_per_km,minimum_price,active) VALUES(?,?,?,?,1)").bind(id,b.service_type,b.rate_per_km,b.minimum_price),
+  env.DB.prepare("INSERT INTO audit_logs(id,actor_id,action,entity_type,entity_id,detail) VALUES(?,?,'PRICING_UPDATED','PRICING',?,?)").bind(uid(),user.id,id,b.service_type+" rate="+b.rate_per_km+" minimum="+b.minimum_price)
+ ]);
+ return json({ok:true,id},201);
+}
 if(p==="/api/orders"&&r.method==="GET"){let q=user.role==="ADMIN"?env.DB.prepare("SELECT * FROM orders ORDER BY created_at DESC LIMIT 200"):user.role==="COURIER"?env.DB.prepare("SELECT * FROM orders WHERE courier_id=? ORDER BY created_at DESC LIMIT 200").bind(user.id):env.DB.prepare("SELECT * FROM orders WHERE customer_id=? ORDER BY created_at DESC LIMIT 100").bind(user.id);const d=await q.all();return json({orders:d.results})}
 if(p==="/api/orders"&&r.method==="POST"){const b=await body(r);if(!b||!["RIDE","SEND"].includes(b.type)||![b.pickup_lat,b.pickup_lng,b.destination_lat,b.destination_lng].every(Number.isFinite)||!b.pickup_label||!b.destination_label)return json({error:"Data order dan lokasi belum lengkap"},400);const oid=uid(),code="HG-"+Date.now().toString(36).toUpperCase()+"-"+uid().slice(0,4).toUpperCase();await env.DB.prepare("INSERT INTO orders(id,order_code,type,customer_id,status,pickup_label,pickup_lat,pickup_lng,destination_label,destination_lat,destination_lng,vehicle,notes) VALUES(?,?,?,?,'NEW_ORDER',?,?,?,?,?,?,?,?)").bind(oid,code,b.type,user.id,b.pickup_label,b.pickup_lat,b.pickup_lng,b.destination_label,b.destination_lat,b.destination_lng,b.vehicle||null,b.notes||null).run();await env.DB.prepare("INSERT INTO order_events(id,order_id,actor_id,to_status,note) VALUES(?,?,?,'NEW_ORDER','Order dibuat')").bind(uid(),oid,user.id).run();return json({ok:true,order_code:code},201)}
 const m=p.match(/^\/api\/orders\/([\w-]+)\/status$/);
