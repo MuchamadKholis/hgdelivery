@@ -1,9 +1,5 @@
--- Track the payment state directly on each order for fast operational views.
-ALTER TABLE orders
-ADD COLUMN payment_status TEXT NOT NULL DEFAULT 'UNPAID'
-CHECK (payment_status IN ('UNPAID','PAID','REFUNDED'));
-
--- A manual full-payment record may be recorded only once per order.
+-- Prevent more than one fully-paid payment record for the same order.
+-- The payment_status column already exists in migration 0002_operations.sql.
 CREATE UNIQUE INDEX idx_order_single_paid_payment
 ON order_payments(order_id)
 WHERE status = 'PAID';
