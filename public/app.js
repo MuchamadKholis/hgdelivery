@@ -43,7 +43,7 @@ async function loadOrders(){
     line.append(sel,btn);el.append(line)
    }
    if(me.role==="ADMIN"||me.role==="COURIER"){
-    const choices=me.role==="ADMIN"?["VERIFIED","PROCESS","ON_TRIP","TRIP_COMPLETED","SUCCESS","RESCHEDULE","CANCEL","PENDING_PAYMENT"]:o.status==="PROCESS"?["ON_TRIP"]:o.status==="ON_TRIP"?["TRIP_COMPLETED"]:[];
+    const adminTransitions={NEW_ORDER:["VERIFIED","CANCEL"],VERIFIED:["PROCESS","PENDING_PAYMENT","CANCEL","RESCHEDULE"],PENDING_PAYMENT:["VERIFIED","CANCEL"],PROCESS:["ON_TRIP","CANCEL","RESCHEDULE"],ON_TRIP:["TRIP_COMPLETED","CANCEL"],TRIP_COMPLETED:["SUCCESS"],RESCHEDULE:["VERIFIED","PROCESS","CANCEL"],SUCCESS:[],CANCEL:[]};const choices=me.role==="ADMIN"?(adminTransitions[o.status]||[]):o.status==="PROCESS"?["ON_TRIP"]:o.status==="ON_TRIP"?["TRIP_COMPLETED"]:[];
     if(choices.length){
      const statusLine=document.createElement("div");statusLine.className="assignline";
      const statusSelect=document.createElement("select");statusSelect.setAttribute("aria-label","Ubah status "+o.order_code);
