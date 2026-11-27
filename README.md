@@ -1,13 +1,12 @@
 # HGDelivery
 
-Clean rebuild using plain HTML/CSS/JavaScript, Cloudflare Workers, D1 and private R2.
+Clean rebuild using plain HTML/CSS/JavaScript, Cloudflare Workers, D1 and private Google Drive storage for proof photos.
 
 ## Cloudflare resources
 
-See [Cloudflare setup guide](docs/CLOUDFLARE_SETUP.md) for the exact commands to create the D1 database and private R2 bucket, apply migrations, configure secrets and deploy.
+See [Cloudflare setup guide](docs/CLOUDFLARE_SETUP.md) for the exact commands to create the D1 database, apply migrations, configure secrets and deploy. See [Google Drive setup](docs/GOOGLE_DRIVE_SETUP.md) for private proof-photo storage.
 
 - D1 database name: `hgdelivery`
-- R2 bucket name: `hgdelivery-private` (private; do not enable public access)
 - Worker name: `hgdelivery`
 - D1 migrations: `database/migrations/`
 
@@ -20,6 +19,6 @@ See [Cloudflare setup guide](docs/CLOUDFLARE_SETUP.md) for the exact commands to
 
 ## Production status
 
-This is an implementation in progress, not a production-ready service. The initial customer order and map flow exists, but user management, courier assignment, pricing enforcement, secure proof upload/download, payment workflows, rate limiting, CSRF/origin controls, and end-to-end tests still need completion. Do not onboard real users until these are implemented and tested.
+This is an implementation in progress, not a production-ready service. The initial customer order and map flow exists. Login rate limits, same-origin API checks, secure session cookies, and role-checked proof upload/download endpoints are implemented but still require runtime and end-to-end verification. User management, courier assignment, pricing enforcement, payment workflows, retention rules, and comprehensive end-to-end tests remain incomplete. Do not onboard real users or upload real customer documents until these are implemented and tested. Do not onboard real users until these are implemented and tested.
 
-The clean version does not use legacy Apps Script, Sheets, Drive IDs or frontend credentials. Deleting old secrets from the new code does not erase them from Git history; rotate any credentials that were ever committed.
+The current build uses private Google Drive storage for proof photos; D1 stores file metadata and Drive IDs only. It does not use legacy Apps Script, Sheets, or frontend credentials. Deleting old secrets from the new code does not erase them from Git history; rotate any credentials that were ever committed.
