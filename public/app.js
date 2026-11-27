@@ -1,6 +1,6 @@
 const $=s=>document.querySelector(s);let me=null;const maps={};const defaults={pickup:[-6.3422,106.7383],destination:[-6.2966,106.7124]};
 async function api(path,opt={}){const r=await fetch(path,{...opt,credentials:"same-origin",headers:{"content-type":"application/json",...(opt.headers||{})}});const d=await r.json().catch(()=>({}));if(!r.ok){const e=Error(d.error||"Permintaan gagal");e.diagnostic=d.diagnostic;throw e}return d}
-function start(user){me=user;$("#login").hidden=true;$("#app").hidden=false;$("#welcomeName").textContent=user.name;$("#userbar").textContent=user.role;document.querySelectorAll(".admin-only").forEach(x=>x.hidden=user.role!=="ADMIN");initMaps();loadOrders();if(user.role==="ADMIN")loadDashboard()}
+function start(user){me=user;$("#login").hidden=true;$("#app").hidden=false;$("#welcomeName").textContent=user.name;$("#userbar").textContent=user.role;document.querySelectorAll(".admin-only").forEach(x=>x.hidden=user.role!=="ADMIN");$("#customerNameInput").value=user.name||"";$("#customerPhoneInput").value=user.phone||"";$("#customerEmailInput").value=user.email||"";$("#adminDistanceOverrideBox").hidden=user.role!=="ADMIN";const dt=new Date(Date.now()+15*60000);dt.setMinutes(dt.getMinutes()-dt.getTimezoneOffset());$("#pickupDateTimeInput").value=dt.toISOString().slice(0,16);initMaps();loadOrders();if(user.role==="ADMIN")loadDashboard()}
 async function loadDashboard(){const root=$("#dashboardMetrics");try{const d=await api("/api/admin/dashboard"),m=d.metrics;root.replaceChildren();const items=[["Total order",m.total_orders],["Perlu diproses",m.waiting_orders],["Dalam proses",m.active_orders],["Selesai",m.completed_orders],["Kurir aktif",m.active_couriers],["Customer aktif",m.active_customers]];items.forEach(([label,value])=>{const card=document.createElement("div");card.className="metric";const name=document.createElement("small");name.textContent=label;const number=document.createElement("strong");number.textContent=Number(value||0).toLocaleString("id-ID");card.append(name,number);root.append(card)})}catch(e){root.textContent="Ringkasan dashboard belum dapat dimuat: "+e.message}}
 function initMaps(){for(const key of ["pickup","destination"]){if(maps[key]){maps[key].map.invalidateSize();continue}const map=L.map(key+"Map").setView(defaults[key],13);L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap"}).addTo(map);const marker=L.marker(defaults[key],{draggable:true}).addTo(map);maps[key]={map,marker};marker.on("dragend",()=>{const p=marker.getLatLng();setPoint(key,p.lat,p.lng,true)});map.on("click",e=>{marker.setLatLng(e.latlng);setPoint(key,e.latlng.lat,e.latlng.lng,true)});setPoint(key,defaults[key][0],defaults[key][1],true)}}
 async function reverse(lat,lng){try{const d=await api("/api/geocode/reverse?lat="+encodeURIComponent(lat)+"&lon="+encodeURIComponent(lng));return d.display_name||lat.toFixed(6)+", "+lng.toFixed(6)}catch{return lat.toFixed(6)+", "+lng.toFixed(6)}}
@@ -13,9 +13,29 @@ $("#registerForm").onsubmit=async e=>{e.preventDefault();const msg=$("#registerM
 $("#bootstrapForm").onsubmit=async e=>{e.preventDefault();const v=Object.fromEntries(new FormData(e.target));const msg=$("#bootstrapMessage");msg.textContent="";if(v.password!==v.passwordConfirm){msg.textContent="Konfirmasi password tidak sama.";return}delete v.passwordConfirm;try{const d=await api("/api/auth/bootstrap",{method:"POST",body:JSON.stringify(v)});e.target.reset();msg.textContent=d.message+" Setelah itu jalankan perintah penghapusan secret di Cloudflare."; }catch(x){msg.textContent=x.message+(x.diagnostic?" — Detail teknis: "+x.diagnostic:"")}};
 $("#logout").onclick=async()=>{await api("/api/auth/logout",{method:"POST"});location.reload()};
 document.querySelectorAll(".tab").forEach(b=>b.onclick=()=>{document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("active",x===b));["new","orders","users","pricing"].forEach(k=>$("#"+k).hidden=b.dataset.tab!==k);if(b.dataset.tab==="new")setTimeout(()=>Object.values(maps).forEach(x=>x.map.invalidateSize()),80);if(b.dataset.tab==="users")loadUsers();if(b.dataset.tab==="pricing")loadPricing()});
-let routeLine=null;
-$("#estimateRoute").onclick=async()=>{const button=$("#estimateRoute"),box=$("#routeEstimate"),v=Object.fromEntries(new FormData($("#orderForm")));["pickup_lat","pickup_lng","destination_lat","destination_lng"].forEach(k=>v[k]=Number(v[k]));if(![v.pickup_lat,v.pickup_lng,v.destination_lat,v.destination_lng].every(Number.isFinite)){box.textContent="Pilih lokasi jemput dan tujuan terlebih dahulu.";return}button.disabled=true;box.textContent="Menghitung rute…";try{const d=await api("/api/route/estimate",{method:"POST",body:JSON.stringify(v)});box.textContent="Jarak jalan ± "+d.distance_km.toLocaleString("id-ID")+" km · Waktu ± "+d.duration_minutes.toLocaleString("id-ID")+" menit. "+d.note+" "+d.attribution;if(routeLine){Object.values(maps).forEach(m=>m.map.removeLayer(routeLine))}routeLine=L.geoJSON(d.geometry,{style:{color:"#2563eb",weight:5,opacity:.8}});routeLine.addTo(maps.pickup.map);maps.pickup.map.fitBounds(routeLine.getBounds(),{padding:[24,24]})}catch(x){box.textContent=x.message}finally{button.disabled=false}};
-$("#orderForm").onsubmit=async e=>{e.preventDefault();const v=Object.fromEntries(new FormData(e.target));["pickup_lat","pickup_lng","destination_lat","destination_lng"].forEach(k=>v[k]=Number(v[k]));try{const d=await api("/api/orders",{method:"POST",body:JSON.stringify(v)});$("#orderMessage").textContent="Order berhasil dibuat: "+d.order_code;loadOrders()}catch(x){$("#orderMessage").textContent=x.message}};
+let routeLine=null,routeKm=0;
+function rupiah(n){return "Rp "+Math.round(Number(n)||0).toLocaleString("id-ID")}
+function updateFare(){
+ const type=$("#serviceTypeInput").value,vehicle=$("#vehicleTypeInput").value,km=routeKm;
+ const rate=type==="SEND"?2000:(vehicle==="Mobil"?3500:1500),minimum=type==="SEND"?6000:5000;
+ const total=km>0?Math.max(minimum,Math.round(km*rate)):0;
+ const company=type==="SEND"?Math.round(total*.75):Math.round(total*2/3),courier=total-company;
+ $("#fareServiceLabel").textContent=type==="SEND"?"TARIF HG SEND":"TARIF HG RIDE";
+ $("#fareRateLabel").textContent=rupiah(rate)+" / km";
+ $("#fareTotalDisplay").textContent=rupiah(total);
+ $("#fareDistanceDisplay").textContent=km.toFixed(1)+" km";
+ $("#fareCourierSplit").textContent=rupiah(courier);
+ $("#fareCompanySplit").textContent=rupiah(company);
+ $("#fareSplitRow").hidden=me?.role!=="ADMIN";
+ $("#rideFields").hidden=type!=="RIDE";
+ $("#sendFields").hidden=type!=="SEND";
+ $("#vehicleGroup").hidden=type!=="RIDE";
+}
+$("#estimateRoute").onclick=async()=>{const button=$("#estimateRoute"),box=$("#routeEstimate"),v=Object.fromEntries(new FormData($("#orderForm")));["pickup_lat","pickup_lng","destination_lat","destination_lng"].forEach(k=>v[k]=Number(v[k]));if(![v.pickup_lat,v.pickup_lng,v.destination_lat,v.destination_lng].every(Number.isFinite)){box.textContent="Pilih lokasi jemput dan tujuan terlebih dahulu.";return}button.disabled=true;box.textContent="Menghitung rute…";try{const d=await api("/api/route/estimate",{method:"POST",body:JSON.stringify(v)});routeKm=Number(d.distance_km)||0;box.textContent="Jarak jalan ± "+routeKm.toLocaleString("id-ID")+" km · Waktu ± "+d.duration_minutes.toLocaleString("id-ID")+" menit · "+d.provider+". "+d.note+" "+d.attribution;updateFare();if(routeLine){Object.values(maps).forEach(m=>m.map.removeLayer(routeLine))}routeLine=L.geoJSON(d.geometry,{style:{color:"#16a34a",weight:5,opacity:.85}});routeLine.addTo(maps.pickup.map);maps.pickup.map.fitBounds(routeLine.getBounds(),{padding:[24,24]})}catch(x){routeKm=0;updateFare();box.textContent=x.message}finally{button.disabled=false}};
+$("#serviceTypeInput").onchange=updateFare;$("#vehicleTypeInput").onchange=updateFare;
+$("#adminDistanceInput").oninput=()=>{if(me?.role==="ADMIN"){routeKm=Math.max(0,Number($("#adminDistanceInput").value)||0);$("#routeEstimate").textContent="Jarak dikoreksi manual oleh admin.";updateFare()}};
+updateFare();
+$("#orderForm").onsubmit=async e=>{e.preventDefault();const v=Object.fromEntries(new FormData(e.target));["pickup_lat","pickup_lng","destination_lat","destination_lng"].forEach(k=>v[k]=Number(v[k]));v.distance_km=routeKm;try{const d=await api("/api/orders",{method:"POST",body:JSON.stringify(v)});$("#orderMessage").textContent="Order berhasil dibuat: "+d.order_code+" · Total "+rupiah(d.total_payment);loadOrders()}catch(x){$("#orderMessage").textContent=x.message}};
 async function loadSummary(){
  try{
   const d=await api("/api/admin/summary"),root=$("#dashboardSummary");root.replaceChildren();
@@ -45,8 +65,7 @@ async function loadOrders(){
     record.onclick=async()=>{const value=Number(amount.value);if(!Number.isSafeInteger(value)||value<1){alert("Isi nominal pembayaran yang valid.");return}record.disabled=true;try{await api("/api/orders/"+encodeURIComponent(o.id)+"/payments",{method:"POST",body:JSON.stringify({amount:value,method:method.value,reference:reference.value})});await loadOrders()}catch(err){alert(err.message);record.disabled=false}};
     pay.append(amount,method,reference,record);el.append(pay);
    }
-   const p=document.createElement("p");p.textContent=o.pickup_label+" → "+o.destination_label;
-   const t=document.createElement("small");t.textContent=new Date(o.created_at+"Z").toLocaleString("id-ID");el.append(h,p,t);
+   const people=document.createElement("p");people.textContent=(o.customer_name||"Pemesan")+" ("+(o.customer_phone||"-")+")"+(o.recipient_name?" · Penerima: "+o.recipient_name+" ("+(o.recipient_phone||"-")+")":"");const p=document.createElement("p");p.textContent="Dari: "+o.pickup_label+" → Ke: "+o.destination_label;const details=document.createElement("p");details.textContent="Jarak: "+Number(o.distance_km||0).toFixed(1)+" km · Total bayar: "+rupiah(o.total_payment||o.price||0)+" · Argo kurir: "+rupiah(o.courier_share||0);const t=document.createElement("small");t.textContent="Jadwal: "+(o.pickup_datetime||"-")+" · Dibuat: "+new Date(o.created_at+"Z").toLocaleString("id-ID");el.append(h,people,p,details,t);
    if(me.role==="ADMIN"){
     const line=document.createElement("div");line.className="assignline";
     const sel=document.createElement("select");sel.setAttribute("aria-label","Pilih kurir untuk "+o.order_code);
@@ -61,7 +80,7 @@ async function loadOrders(){
    const proofList=document.createElement("div");proofList.className="proof-list";proofList.textContent="Memuat bukti…";proofBox.append(proofList);
    const renderProofs=proofs=>{proofList.replaceChildren();if(!proofs.length){proofList.textContent="Belum ada foto bukti.";return}proofs.forEach(pr=>{const link=document.createElement("a");link.href="/api/proofs/"+encodeURIComponent(pr.id);link.target="_blank";link.rel="noopener";link.textContent=pr.label+" · "+new Date(pr.created_at+"Z").toLocaleString("id-ID")+" · "+Math.ceil(pr.size_bytes/1024)+" KB";proofList.append(link)})};
    fetch("/api/orders/"+encodeURIComponent(o.id)+"/proofs",{credentials:"same-origin"}).then(async res=>{const data=await res.json();if(!res.ok)throw Error(data.error||"Gagal memuat bukti");renderProofs(data.proofs)}).catch(err=>{proofList.textContent=err.message});
-   if(me.role==="ADMIN"||(me.role==="COURIER"&&o.courier_id===me.id)){
+   if(me.role==="COURIER"&&o.courier_id===me.id){
     const upload=document.createElement("div");upload.className="proof-upload";
     const file=document.createElement("input");file.type="file";file.accept="image/jpeg,image/png,image/webp";file.setAttribute("aria-label","Pilih foto bukti");
     const label=document.createElement("input");label.type="text";label.maxLength=80;label.placeholder="Keterangan foto (opsional)";
