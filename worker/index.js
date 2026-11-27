@@ -299,6 +299,9 @@ if(p==="/api/orders"&&r.method==="POST"){
  if(!b||!["RIDE","SEND"].includes(b.type)||!coords.every(v=>typeof v==="number"&&Number.isFinite(v))||Math.abs(b.pickup_lat)>90||Math.abs(b.destination_lat)>90||Math.abs(b.pickup_lng)>180||Math.abs(b.destination_lng)>180||typeof b.pickup_label!=="string"||typeof b.destination_label!=="string"||!b.pickup_label.trim()||!b.destination_label.trim()||b.pickup_label.length>500||b.destination_label.length>500)return json({error:"Data order dan lokasi belum lengkap atau tidak valid"},400);
  const distance=Number(b.distance_km);
  if(!Number.isFinite(distance)||distance<=0||distance>1000)return json({error:"Hitung jarak rute terlebih dahulu sebelum membuat order."},400);
+ if(b.type==="SEND"&&(!String(b.item_type||"").trim()||!String(b.recipient_name||"").trim()||!String(b.recipient_phone||"").trim()))return json({error:"Jenis barang, nama penerima, dan nomor telepon penerima wajib diisi untuk HG Send."},400);
+ if(b.type==="RIDE"&&(!Number.isInteger(Number(b.passenger_count))||Number(b.passenger_count)<1||Number(b.passenger_count)>4))return json({error:"Jumlah penumpang tidak valid."},400);
+ if(typeof b.pickup_datetime!=="string"||!b.pickup_datetime.trim())return json({error:"Tanggal dan jam penjemputan wajib diisi."},400);
  const name=typeof b.customer_name==="string"&&b.customer_name.trim()?b.customer_name.trim():user.name;
  const phone=typeof b.customer_phone==="string"?b.customer_phone.trim().slice(0,30):(user.phone||"");
  const email=typeof b.customer_email==="string"?b.customer_email.trim().slice(0,254):user.email;
