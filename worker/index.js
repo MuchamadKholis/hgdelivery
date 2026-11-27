@@ -65,11 +65,12 @@ if(!["GET","HEAD","OPTIONS"].includes(r.method)){
 if(r.method==="POST"&&p==="/api/auth/bootstrap"){
  const b=await body(r);
  if(!env.BOOTSTRAP_ADMIN_PASSWORD||typeof b?.bootstrapPassword!=="string"||b.bootstrapPassword!==env.BOOTSTRAP_ADMIN_PASSWORD)return json({error:"Bootstrap tidak valid"},403);
- const c=await env.DB.prepare("SELECT COUNT(*) n FROM users WHERE role='ADMIN'").first();if(c.n)return json({error:"Admin sudah dibuat"},409);
- if(typeof b.name!=="string"||typeof b.email!=="string"||typeof b.password!=="string"||b.name.trim().length<2||b.name.length>100||b.email.length>254||b.password.length<12||b.password.length>1024)return json({error:"Nama, email, atau password tidak memenuhi ketentuan"},400);
+ if(typeof b.name!=="string"||typeof b.email!=="string"||typeof b.password!=="string"||b.name.trim().length<2||b.name.length>100||b.email.trim().length<5||b.email.length>254||b.password.length<12||b.password.length>1024)return json({error:"Nama, email, atau password tidak memenuhi ketentuan"},400);
  const email=b.email.trim().toLowerCase();
- try{await env.DB.prepare("INSERT INTO users(id,name,email,password_hash,role) VALUES(?,?,?,?, 'ADMIN')").bind(uid(),b.name.trim(),email,await hashPass(b.password)).run();}
- catch{return json({error:"Email sudah digunakan atau data admin tidak valid"},409)}
+ try{
+  const made=await env.DB.prepare("INSERT INTO users(id,name,email,password_hash,role) SELECT ?,?,?,?,'ADMIN' WHERE NOT EXISTS (SELECT 1 FROM users WHERE role='ADMIN')").bind(uid(),b.name.trim(),email,await hashPass(b.password)).run();
+  if(!made.meta?.changes)return json({error:"Admin sudah dibuat"},409);
+ }catch{return json({error:"Email sudah digunakan atau data admin tidak valid"},409)}
  await env.DB.prepare("INSERT INTO audit_logs(id,action,entity_type,detail) VALUES(?,'ADMIN_BOOTSTRAP','USER',?)").bind(uid(),email).run();
  return json({ok:true,message:"Admin berhasil dibuat. Hapus secret BOOTSTRAP_ADMIN_PASSWORD sekarang."},201);
 }
