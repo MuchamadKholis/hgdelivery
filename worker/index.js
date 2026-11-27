@@ -128,6 +128,29 @@ if(proofParts.length===4&&proofParts[1]==="api"&&proofParts[2]==="proofs"&&proof
  return new Response(file.body,{headers:{"content-type":proof.content_type,"content-length":String(proof.size_bytes),"cache-control":"private, no-store","x-content-type-options":"nosniff","content-disposition":"inline"}});
 }
 
+const orderPaymentsMatch=p.match(/^\/api\/orders\/([\\w-]+)\/payments$/);
+if(orderPaymentsMatch&&r.method==="GET"){
+ const order=await env.DB.prepare("SELECT id,customer_id FROM orders WHERE id=?").bind(orderPaymentsMatch[1]).first();
+ if(!order)return json({error:"Order tidak ditemukan"},404);
+ if(user.role!=="ADMIN"&&!(user.role==="CUSTOMER"&&order.customer_id===user.id))return json({error:"Tidak berhak melihat pembayaran ini"},403);
+ const d=await env.DB.prepare("SELECT id,amount,method,reference,status,paid_at,created_at FROM order_payments WHERE order_id=? ORDER BY created_at DESC").bind(order.id).all();
+ return json({payments:d.results});
+}
+if(orderPaymentsMatch&&r.method==="POST"){
+ if(user.role!=="ADMIN")return json({error:"Hanya admin yang dapat mencatat pembayaran"},403);
+ const b=await body(r),order=await env.DB.prepare("SELECT id,payment_status FROM orders WHERE id=?").bind(orderPaymentsMatch[1]).first();
+ if(!order)return json({error:"Order tidak ditemukan"},404);
+ if(order.payment_status==="PAID")return json({error:"Pembayaran order ini sudah tercatat lunas"},409);
+ const methods=["CASH","BANK_TRANSFER","QRIS","OTHER"];
+ if(!Number.isSafeInteger(b?.amount)||b.amount<1||b.amount>100000000||!methods.includes(b.method)||typeof (b.reference??"")!=="string"||(b.reference||"").length>100)return json({error:"Nominal, metode, atau referensi pembayaran tidak valid"},400);
+ const id=uid(),ref=(b.reference||"").trim()||null;
+ await env.DB.batch([
+  env.DB.prepare("INSERT INTO order_payments(id,order_id,amount,method,reference,status,paid_at) VALUES(?,?,?,?,?,'PAID',CURRENT_TIMESTAMP)").bind(id,order.id,b.amount,b.method,ref),
+  env.DB.prepare("UPDATE orders SET payment_status='PAID',updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(order.id),
+  env.DB.prepare("INSERT INTO audit_logs(id,actor_id,action,entity_type,entity_id,detail) VALUES(?,?,'PAYMENT_RECORDED','ORDER',?,?)").bind(uid(),user.id,order.id,"Rp "+b.amount+" · "+b.method+(ref?" · "+ref:""))
+ ]);
+ return json({ok:true,payment_id:id},201);
+}
 if(p==="/api/admin/dashboard"&&r.method==="GET"){
  if(user.role!=="ADMIN")return json({error:"Hanya admin"},403);
  const d=await env.DB.prepare("SELECT (SELECT COUNT(*) FROM orders) total_orders,(SELECT COUNT(*) FROM orders WHERE status IN ('NEW_ORDER','VERIFIED','PENDING_PAYMENT')) waiting_orders,(SELECT COUNT(*) FROM orders WHERE status IN ('PROCESS','ON_TRIP','TRIP_COMPLETED','RESCHEDULE')) active_orders,(SELECT COUNT(*) FROM orders WHERE status='SUCCESS') completed_orders,(SELECT COUNT(*) FROM users WHERE role='COURIER' AND active=1) active_couriers,(SELECT COUNT(*) FROM users WHERE role='CUSTOMER' AND active=1) active_customers").first();
