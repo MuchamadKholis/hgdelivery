@@ -50,7 +50,6 @@
     });
   }
 
-  // ==================== STORAGE & CLOUD SYNC ====================
   function loadLocalData() {
     let accounts = [];
     let orders = [];
@@ -78,10 +77,12 @@
     try {
       const res = await fetch(url, {
         method: "POST",
+        redirect: "follow",
         headers: { "Content-Type": "text/plain;charset=utf-8" },
         body: JSON.stringify(payload)
       });
-      return await res.json();
+      const text = await res.text();
+      return JSON.parse(text);
     } catch (err) {
       console.warn("Cloud sync error:", err);
       return null;
@@ -112,7 +113,10 @@
     if (idx >= 0) state.accounts[idx] = acc;
     else state.accounts.push(acc);
     saveLocalData();
-    await apiCall({ action: "upsertAccount", account: acc });
+    const res = await apiCall({ action: "upsertAccount", account: acc });
+    if (getScriptUrl() && (!res || !res.ok)) {
+      showToast("Tersimpan lokal. Periksa deployment Apps Script jika belum masuk ke Sheet.");
+    }
   }
 
   async function persistOrder(order) {
@@ -120,10 +124,12 @@
     if (idx >= 0) state.orders[idx] = order;
     else state.orders.unshift(order);
     saveLocalData();
-    await apiCall({ action: "upsertOrder", order });
+    const res = await apiCall({ action: "upsertOrder", order });
+    if (getScriptUrl() && (!res || !res.ok)) {
+      showToast("Order tersimpan lokal. Periksa deployment Apps Script jika belum masuk ke Sheet.");
+    }
   }
 
-  // ==================== ORDER NUMBER FORMAT: HGRYYMM0000 / HGSYYMM0000 ====================
   function generateOrderNumber(serviceType) {
     const now = new Date();
     const yy = String(now.getFullYear()).slice(-2);
@@ -140,7 +146,6 @@
     return prefix + String(maxSeq + 1).padStart(4, "0");
   }
 
-  // ==================== AUTHENTICATION ====================
   function initAuth() {
     document.querySelectorAll(".auth-tab").forEach(btn => {
       btn.addEventListener("click", () => {
@@ -261,7 +266,6 @@
     renderAll();
   }
 
-  // ==================== NAVIGATION ====================
   function switchView(viewId) {
     document.querySelectorAll(".nav-tab").forEach(t => {
       t.classList.toggle("active", t.dataset.view === viewId);
@@ -280,7 +284,6 @@
     });
   }
 
-  // ==================== MAP & ROUTING ====================
   function initMap() {
     map = L.map("map").setView([-6.2615, 106.7810], 11);
 
@@ -426,7 +429,6 @@
     }
   }
 
-  // ==================== FARE CALCULATION ====================
   function recalculateFare() {
     const km = Math.max(0, Number(state.distanceKm) || 0);
     let total = 0;
@@ -551,7 +553,6 @@
     });
   }
 
-  // ==================== WHATSAPP DISPATCH FORMAT ====================
   function buildWhatsAppText(o) {
     if (o.serviceType === "RIDE") {
       return [
@@ -588,7 +589,6 @@
     return p;
   }
 
-  // ==================== ORDERS LIST & WORKFLOW ====================
   function getVisibleOrders() {
     const u = state.currentUser;
     if (!u) return [];
@@ -686,9 +686,7 @@
       }
 
       const proofHtml = o.proofUrl
-        ? (o.proofUrl.startsWith("data:image")
-            ? `<a href="${o.proofUrl}" target="_blank" class="btn-link">Lihat Bukti Bayar</a>`
-            : `<a href="${o.proofUrl}" target="_blank" rel="noopener" class="btn-link">Buka Bukti di Drive</a>`)
+        ? `<a href="${o.proofUrl}" target="_blank" rel="noopener" class="btn-link">Lihat Bukti Bayar</a>`
         : `<span class="muted">Belum diunggah</span>`;
 
       card.innerHTML = `
@@ -842,7 +840,6 @@
     });
   }
 
-  // ==================== COURIER COMPLETE & UPLOAD PROOF ====================
   function initCompleteTripModal() {
     function handleImageSelect(file) {
       if (!file) return;
@@ -896,7 +893,6 @@
     });
   }
 
-  // ==================== ADMIN MANAGE COURIERS ====================
   function initCourierManagement() {
     document.getElementById("createCourierForm").addEventListener("submit", async e => {
       e.preventDefault();
@@ -946,7 +942,6 @@
     `).join("");
   }
 
-  // ==================== REKAP KEUANGAN (ADMIN) ====================
   function renderRekap() {
     const successOrders = state.orders.filter(o => o.status === "Success");
     const totalGross = successOrders.reduce((s, o) => s + Number(o.totalPayment || 0), 0);
@@ -1016,7 +1011,6 @@
     renderRekap();
   }
 
-  // ==================== INIT ====================
   document.addEventListener("DOMContentLoaded", async () => {
     loadLocalData();
     restoreSession();

@@ -14,9 +14,9 @@ function handleRequest(e) {
     const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
     ensureSheets(ss);
 
-    const payload = e.postData && e.postData.contents
+    const payload = e && e.postData && e.postData.contents
       ? JSON.parse(e.postData.contents)
-      : (e.parameter || {});
+      : ((e && e.parameter) || {});
     const action = payload.action || 'getAll';
 
     if (action === 'getAll') {
@@ -28,20 +28,22 @@ function handleRequest(e) {
     }
 
     if (action === 'upsertAccount') {
-      upsertRow(ss.getSheetByName('Accounts'), 'id', payload.account);
+      upsertRow(ss.getSheetByName('Accounts'), 'id', payload.account || {});
       return jsonOut({ ok: true });
     }
 
     if (action === 'upsertOrder') {
-      upsertRow(ss.getSheetByName('Orders'), 'orderNumber', payload.order);
+      upsertRow(ss.getSheetByName('Orders'), 'orderNumber', payload.order || {});
       return jsonOut({ ok: true });
     }
 
     if (action === 'uploadProof') {
       const folder = DriveApp.getFolderById(DRIVE_FOLDER_ID);
-      const base64Data = payload.base64.split(',')[1] || payload.base64;
+      const rawBase64 = payload.base64 || '';
+      const base64Data = rawBase64.includes(',') ? rawBase64.split(',')[1] : rawBase64;
       const mimeType = payload.mimeType || 'image/jpeg';
-      const blob = Utilities.newBlob(Utilities.base64Decode(base64Data), mimeType, payload.fileName);
+      const fileName = payload.fileName || ('bukti_bayar_' + Date.now() + '.jpg');
+      const blob = Utilities.newBlob(Utilities.base64Decode(base64Data), mimeType, fileName);
       const file = folder.createFile(blob);
       file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
       return jsonOut({ ok: true, fileUrl: file.getUrl() });

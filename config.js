@@ -1,5 +1,5 @@
-// Konfigurasi Backend Google Sheets & Google Drive HG Ride & Send
-// Isi APPS_SCRIPT_URL dengan URL Web App Google Apps Script Anda sebelum push ke GitHub.
+// Konfigurasi HG Ride & Send (Google Sheets + Google Drive via Apps Script)
+// Masukkan URL Web App Google Apps Script Anda pada APPS_SCRIPT_URL.
 window.HG_CONFIG = {
   SPREADSHEET_ID: "1RfPzyNFgaT755P5LFV0lwESXNCIk_u3XexX1pFNLIHA",
   DRIVE_FOLDER_ID: "101gXN2Ks7BVSs9J8diiwYHJcsAURKt05",
