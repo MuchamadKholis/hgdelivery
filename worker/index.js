@@ -98,6 +98,11 @@ if(proofUploadParts.length===5&&proofUploadParts[1]==="api"&&proofUploadParts[2]
  if(!file||typeof file.arrayBuffer!=="function")return json({error:"File foto wajib disertakan"},400);
  if(!["image/jpeg","image/png","image/webp"].includes(file.type))return json({error:"Format foto harus JPG, PNG, atau WebP"},415);
  if(file.size<1||file.size>8*1024*1024)return json({error:"Ukuran foto maksimal 8 MB"},413);
+ const head=new Uint8Array(await file.slice(0,16).arrayBuffer());
+ const jpeg=head[0]===0xff&&head[1]===0xd8&&head[2]===0xff;
+ const png=head.length>=8&&head[0]===0x89&&head[1]===0x50&&head[2]===0x4e&&head[3]===0x47&&head[4]===0x0d&&head[5]===0x0a&&head[6]===0x1a&&head[7]===0x0a;
+ const webp=head.length>=12&&String.fromCharCode(...head.slice(0,4))==="RIFF"&&String.fromCharCode(...head.slice(8,12))==="WEBP";
+ if(!((file.type==="image/jpeg"&&jpeg)||(file.type==="image/png"&&png)||(file.type==="image/webp"&&webp)))return json({error:"Isi file tidak sesuai dengan format gambar yang diizinkan"},415);
  const meta=await uploadDriveProof(env,file,orderId),proofId=uid();
  await env.DB.batch([
   env.DB.prepare("INSERT INTO order_proofs(id,order_id,uploaded_by,object_key,content_type,size_bytes,label) VALUES(?,?,?,?,?,?,?)").bind(proofId,orderId,user.id,meta.id,file.type,file.size,label),
