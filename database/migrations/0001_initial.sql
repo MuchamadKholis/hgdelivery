@@ -1,0 +1,10 @@
+PRAGMA foreign_keys = ON;
+CREATE TABLE users(id TEXT PRIMARY KEY,name TEXT NOT NULL,email TEXT NOT NULL UNIQUE,phone TEXT,password_hash TEXT NOT NULL,role TEXT NOT NULL CHECK(role IN ('ADMIN','CUSTOMER','COURIER')),active INTEGER NOT NULL DEFAULT 1,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE sessions(token_hash TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,expires_at TEXT NOT NULL,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE orders(id TEXT PRIMARY KEY,order_code TEXT NOT NULL UNIQUE,type TEXT NOT NULL CHECK(type IN ('RIDE','SEND')),customer_id TEXT NOT NULL REFERENCES users(id),courier_id TEXT REFERENCES users(id),status TEXT NOT NULL DEFAULT 'NEW_ORDER',pickup_label TEXT NOT NULL,pickup_lat REAL NOT NULL,pickup_lng REAL NOT NULL,destination_label TEXT NOT NULL,destination_lat REAL NOT NULL,destination_lng REAL NOT NULL,distance_km REAL,vehicle TEXT,notes TEXT,price INTEGER,proof_key TEXT,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE order_events(id TEXT PRIMARY KEY,order_id TEXT NOT NULL REFERENCES orders(id) ON DELETE CASCADE,actor_id TEXT REFERENCES users(id),from_status TEXT,to_status TEXT NOT NULL,note TEXT,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE audit_logs(id TEXT PRIMARY KEY,actor_id TEXT REFERENCES users(id),action TEXT NOT NULL,entity_type TEXT,entity_id TEXT,detail TEXT,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+CREATE INDEX idx_orders_status_created ON orders(status,created_at DESC);
+CREATE INDEX idx_orders_customer ON orders(customer_id,created_at DESC);
+CREATE INDEX idx_orders_courier ON orders(courier_id,created_at DESC);
+CREATE INDEX idx_sessions_expiry ON sessions(expires_at);
