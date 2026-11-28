@@ -1,6 +1,6 @@
 const $=s=>document.querySelector(s);let me=null;let publicPricing={};const maps={};const defaults={pickup:[-6.3422,106.7383],destination:[-6.2966,106.7124]};
 async function api(path,opt={}){const r=await fetch(path,{...opt,credentials:"same-origin",headers:{"content-type":"application/json",...(opt.headers||{})}});const d=await r.json().catch(()=>({}));if(!r.ok){const e=Error(d.error||"Permintaan gagal");e.diagnostic=d.diagnostic;throw e}return d}
-function start(user){me=user;$("#login").hidden=true;$("#app").hidden=false;$("#welcomeName").textContent=user.name;$("#userbar").textContent=user.role;document.querySelectorAll(".admin-only").forEach(x=>x.hidden=user.role!=="ADMIN");$("#customerNameInput").value=user.name||"";$("#customerPhoneInput").value=user.phone||"";$("#customerEmailInput").value=user.email||"";if(user.role==="COURIER"){document.querySelector('[data-tab="new"]').hidden=true;$("#new").hidden=true;document.querySelector('[data-tab="orders"]').classList.add("active");$("#orders").hidden=false;}const dt=new Date(Date.now()+15*60000);dt.setMinutes(dt.getMinutes()-dt.getTimezoneOffset());$("#pickupDateTimeInput").value=dt.toISOString().slice(0,16);updateFare();initMaps();loadOrders();loadPublicPricing();loadRoleDashboard();if(user.role==="ADMIN"){loadDashboard();loadPricing()}}
+function start(user){me=user;$("#login").hidden=true;$("#app").hidden=false;$("#welcomeName").textContent=user.name;$("#userbar").textContent=user.role;document.querySelectorAll(".admin-only").forEach(x=>x.hidden=user.role!=="ADMIN");$("#customerNameInput").value=user.name||"";$("#customerPhoneInput").value=user.phone||"";$("#customerEmailInput").value=user.email||"";if(user.role==="COURIER"){document.querySelector('[data-tab="new"]').hidden=true;$("#new").hidden=true;}setDefaultOrderDates();const dt=new Date(Date.now()+15*60000);dt.setMinutes(dt.getMinutes()-dt.getTimezoneOffset());$("#pickupDateTimeInput").value=dt.toISOString().slice(0,16);updateFare();initMaps();loadOrders();loadPublicPricing();loadRoleDashboard();if(user.role==="ADMIN"){loadDashboard();loadPricing()}}
 async function loadRoleDashboard(){
  const root=$("#roleDashboard");if(!root||me?.role==="ADMIN"){if(root)root.hidden=true;return}
  root.hidden=false;
@@ -29,7 +29,7 @@ document.querySelectorAll("[data-gps]").forEach(b=>b.onclick=()=>{const k=b.data
 $("#loginForm").onsubmit=async e=>{e.preventDefault();$("#loginError").textContent="";try{const d=await api("/api/auth/login",{method:"POST",body:JSON.stringify(Object.fromEntries(new FormData(e.target)))});start(d.user)}catch(x){$("#loginError").textContent=x.message}};
 $("#registerForm").onsubmit=async e=>{e.preventDefault();const msg=$("#registerMessage");msg.textContent="Membuat akun…";try{const d=await api("/api/auth/register",{method:"POST",body:JSON.stringify(Object.fromEntries(new FormData(e.target)))});msg.textContent="Akun customer berhasil dibuat.";start(d.user)}catch(x){msg.textContent=x.message}};
 $("#logout").onclick=async()=>{await api("/api/auth/logout",{method:"POST"});location.reload()};
-document.querySelectorAll(".tab").forEach(b=>b.onclick=()=>{document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("active",x===b));["new","orders","users","pricing"].forEach(k=>$("#"+k).hidden=b.dataset.tab!==k);if(b.dataset.tab==="new")setTimeout(()=>maps.map.invalidateSize(),80);if(b.dataset.tab==="users")loadUsers();if(b.dataset.tab==="pricing")loadPricing()});
+document.querySelectorAll(".tab").forEach(b=>b.onclick=()=>{document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("active",x===b));["dashboard","new","orders","users","pricing","account"].forEach(k=>{if($("#"+k))$("#"+k).hidden=b.dataset.tab!==k});if(b.dataset.tab==="new")setTimeout(()=>maps.map.invalidateSize(),80);if(b.dataset.tab==="users")loadUsers();if(b.dataset.tab==="pricing")loadPricing();if(b.dataset.tab==="dashboard")loadRoleDashboard()});
 let routeLine=null,routeKm=0,routeQuoteId="";
 function rupiah(n){return "Rp "+Math.round(Number(n)||0).toLocaleString("id-ID")}
 function updateFare(){
@@ -63,22 +63,24 @@ async function loadSummary(){
  }catch(e){$("#dashboardSummary").textContent=e.message}
 }
 let openOrderIds=new Set();
+let adminOrderView='ACTIVE',ordersPage=1,ordersPageSize=10;
+function setDefaultOrderDates(){const now=new Date(),today=new Date(now.getTime()-now.getTimezoneOffset()*60000).toISOString().slice(0,10),first=today.slice(0,8)+'01';if($('#filterDateFrom')&&!$('#filterDateFrom').value)$('#filterDateFrom').value=first;if($('#filterDateTo')&&!$('#filterDateTo').value)$('#filterDateTo').value=today;}
 let ordersRenderSequence=0;
 async function loadOrders(){
  const renderId=++ordersRenderSequence,root=$("#orderList");
  [...root.querySelectorAll(".order-disclosure[open]")].forEach(x=>openOrderIds.add(x.dataset.orderId));
  try{
   const d=await api("/api/orders");if(renderId!==ordersRenderSequence)return;
-  let orders=d.orders||[];const sf=$("#filterService")?.value||"ALL",st=$("#filterStatus")?.value||"ALL",from=$("#filterDateFrom")?.value||"",to=$("#filterDateTo")?.value||"";
+  let orders=d.orders||[];if(me.role!=='ADMIN')orders=orders.filter(o=>!['SUCCESS','CANCEL'].includes(o.status));else if(adminOrderView==='ACTIVE')orders=orders.filter(o=>!['SUCCESS','CANCEL'].includes(o.status));else if(adminOrderView==='HISTORY')orders=orders.filter(o=>['SUCCESS','CANCEL'].includes(o.status));const sf=$("#filterService")?.value||"ALL",st=$("#filterStatus")?.value||"ALL",from=$("#filterDateFrom")?.value||"",to=$("#filterDateTo")?.value||"";
   if(sf!=="ALL")orders=orders.filter(o=>o.type===sf);if(st!=="ALL")orders=orders.filter(o=>o.status===st);if(from)orders=orders.filter(o=>String(o.created_at||"").slice(0,10)>=from);if(to)orders=orders.filter(o=>String(o.created_at||"").slice(0,10)<=to);
   let couriers=[];if(me.role==="ADMIN"){const ud=await api("/api/admin/users");couriers=(ud.users||[]).filter(x=>x.role==="COURIER"&&x.active)}if(renderId!==ordersRenderSequence)return;
-  root.replaceChildren();if(!orders.length){root.innerHTML='<div class="empty">Belum ada order untuk filter ini.</div>';return}
+  root.replaceChildren();const totalPages=Math.max(1,Math.ceil(orders.length/ordersPageSize));ordersPage=Math.min(ordersPage,totalPages);const pageItems=orders.slice((ordersPage-1)*ordersPageSize,ordersPage*ordersPageSize);if(!orders.length){$('#orderPagination')?.replaceChildren();root.innerHTML='<div class="empty">Belum ada order untuk filter ini.</div>';return}
   const labels={NEW_ORDER:"NEW ORDER",VERIFIED:"VERIFIED",RESCHEDULE:"RESCHEDULED",ON_TRIP:"ON TRIP",TRIP_COMPLETED:"TRIP COMPLETED",PENDING_PAYMENT:"PENDING PAYMENT",SUCCESS:"SUCCESS",CANCEL:"CANCELLED",PROCESS:"IN PROGRESS"};
   const button=(parent,label,cls,fn)=>{const b=document.createElement("button");b.type="button";b.className=cls||"secondary";b.textContent=label;b.onclick=e=>fn(b,e);parent.append(b);return b};
   const line=parent=>{const x=document.createElement("div");x.className="assignline";parent.append(x);return x};
   const select=(parent,items,label)=>{const s=document.createElement("select");s.setAttribute("aria-label",label);items.forEach(([v,t])=>{const o=document.createElement("option");o.value=v;o.textContent=t;s.append(o)});parent.append(s);return s};
   const patch=async(btn,path,payload)=>{btn.disabled=true;try{await api(path,{method:"PATCH",body:JSON.stringify(payload)});await loadOrders()}catch(e){alert(e.message);btn.disabled=false}};
-  orders.forEach(o=>{
+  pageItems.forEach(o=>{
    const card=document.createElement("article");card.className="order order-card";
    const head=document.createElement("div");head.className="orderhead";const code=document.createElement("b");code.textContent=o.order_code;const badge=document.createElement("span");badge.className="pill status-"+String(o.status).toLowerCase();badge.textContent=labels[o.status]||o.status;head.append(code,badge);card.append(head);
    const people=document.createElement("div");people.className="order-people";
@@ -109,6 +111,7 @@ async function loadOrders(){
    if(me.role==="COURIER"&&o.courier_id===me.id&&o.status==="ON_TRIP"){const up=document.createElement("div");up.className="proof-upload";const file=document.createElement("input");file.type="file";file.accept="image/jpeg,image/png,image/webp";file.capture="environment";const label=document.createElement("input");label.placeholder="Keterangan foto (opsional)";label.maxLength=80;const send=button(up,"Upload Proof","primary compact",async b=>{if(!file.files?.[0]){alert("Pilih foto terlebih dahulu.");return}b.disabled=true;const fd=new FormData();fd.append("file",file.files[0]);fd.append("label",label.value||"Bukti");try{const r=await fetch("/api/orders/"+encodeURIComponent(o.id)+"/proofs",{method:"POST",credentials:"same-origin",body:fd});const d=await r.json().catch(()=>({}));if(!r.ok)throw Error(d.error||"Upload gagal");await loadOrders()}catch(e){alert(e.message);b.disabled=false}});up.prepend(file,label);proof.append(up)}
    details.append(body);card.append(details);root.append(card);
   });
+  const pager=$('#orderPagination');if(pager){pager.replaceChildren();const info=document.createElement('span');info.textContent='Halaman '+ordersPage+' dari '+totalPages+' · '+orders.length+' order';const prev=document.createElement('button');prev.className='secondary';prev.textContent='Sebelumnya';prev.disabled=ordersPage<=1;prev.onclick=()=>{ordersPage--;loadOrders()};const next=document.createElement('button');next.className='secondary';next.textContent='Berikutnya';next.disabled=ordersPage>=totalPages;next.onclick=()=>{ordersPage++;loadOrders()};pager.append(prev,info,next)}
  }catch(e){if(renderId===ordersRenderSequence)root.textContent=e.message}
 }
 let activeUserRole="ADMIN";
@@ -152,4 +155,4 @@ async function loadPricing(){
 }
 $("#pricingForm").onsubmit=async e=>{e.preventDefault();const v=Object.fromEntries(new FormData(e.target));v.rate_per_km=Number(v.rate_per_km);v.courier_rate_per_km=Number(v.courier_rate_per_km);v.minimum_price=Number(v.minimum_price);const msg=$("#pricingMessage");msg.textContent="";try{await api("/api/admin/pricing",{method:"POST",body:JSON.stringify(v)});msg.textContent="Tarif berhasil disimpan.";loadPricing()}catch(x){msg.textContent=x.message}};
 $("#refreshPricing").onclick=loadPricing;
-$("#refresh").onclick=loadOrders;$("#filterService").onchange=loadOrders;$("#filterStatus").onchange=loadOrders;$("#filterDateFrom").onchange=loadOrders;$("#filterDateTo").onchange=loadOrders;$("#exportOrders").onclick=exportOrders;(async()=>{try{const d=await api("/api/auth/me");start(d.user)}catch{}})();
+$("#refresh").onclick=()=>{ordersPage=1;loadOrders()};document.querySelectorAll("[data-order-view]").forEach(b=>b.onclick=()=>{adminOrderView=b.dataset.orderView;ordersPage=1;document.querySelectorAll("[data-order-view]").forEach(x=>x.classList.toggle("active",x===b));loadOrders()});$("#filterService").onchange=()=>{ordersPage=1;loadOrders()};$("#filterStatus").onchange=()=>{ordersPage=1;loadOrders()};$("#filterDateFrom").onchange=()=>{ordersPage=1;loadOrders()};$("#filterDateTo").onchange=()=>{ordersPage=1;loadOrders()};$("#exportOrders").onclick=exportOrders;(async()=>{try{const d=await api("/api/auth/me");start(d.user)}catch{}})();
