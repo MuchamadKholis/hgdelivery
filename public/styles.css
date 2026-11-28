@@ -300,3 +300,18 @@ input:focus,select:focus,textarea:focus{border-color:#8baa5c;box-shadow:0 0 0 4p
  .tabs.app-nav::-webkit-scrollbar{height:3px}
  .tabs.app-nav::-webkit-scrollbar-thumb{background:#77917d;border-radius:4px}
 }
+
+/* Preset and booking location refinement */
+.location-heading{display:flex;align-items:center;gap:10px;margin-bottom:10px;font-weight:750;color:#263d30}
+.location-toolbar{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:end;margin-bottom:8px}
+.location-toolbar label{margin:0}
+.location-toolbar select{margin-top:5px}
+.gps-button{margin:0!important;min-height:42px;white-space:nowrap}
+.location-block .searchline{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px}
+.location-block .searchline input{min-width:0}
+.location-block .searchline button{margin-top:7px;min-width:72px}
+.location-block>input[name$="_label"]{margin-top:8px}
+.preset-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.csv-upload-label{display:inline-flex;align-items:center;justify-content:center;padding:9px 13px;border-radius:9px;background:#eaf2e4;color:#36562d;font-size:13px;font-weight:750;cursor:pointer}
+.preset-csv-help{font-size:12px;margin:8px 0 14px}
+@media(max-width:650px){.location-toolbar{grid-template-columns:minmax(0,1fr) auto}.location-block .searchline{grid-template-columns:minmax(0,1fr) auto}.gps-button{padding:9px 12px}}
