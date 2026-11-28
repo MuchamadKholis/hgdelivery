@@ -369,6 +369,34 @@ if(assignMatch&&r.method==="PATCH"){
  ]);
  return json({ok:true,status:"ON_TRIP"});
 }
+if(p==="/api/presets"&&r.method==="GET"){
+ const d=await env.DB.prepare("SELECT setting_value FROM app_settings WHERE setting_key LIKE 'preset_location:%' ORDER BY setting_key").all();
+ const locations=(d.results||[]).map(x=>{try{return JSON.parse(x.setting_value)}catch{return null}}).filter(x=>x&&x.active!==false);
+ return json({locations});
+}
+if(p==="/api/admin/presets"&&r.method==="GET"){
+ if(user.role!=="ADMIN")return json({error:"Hanya admin"},403);
+ const d=await env.DB.prepare("SELECT setting_key,setting_value FROM app_settings WHERE setting_key LIKE 'preset_location:%' ORDER BY setting_key").all();
+ return json({locations:(d.results||[]).map(x=>{try{return JSON.parse(x.setting_value)}catch{return null}}).filter(Boolean)});
+}
+if(p==="/api/admin/presets"&&r.method==="POST"){
+ if(user.role!=="ADMIN")return json({error:"Hanya admin"},403);
+ const b=await body(r),name=String(b?.name||"").trim(),address=String(b?.address||"").trim(),lat=Number(b?.lat),lng=Number(b?.lng);
+ if(!name||name.length>80||!address||address.length>300||!Number.isFinite(lat)||!Number.isFinite(lng)||Math.abs(lat)>90||Math.abs(lng)>180)return json({error:"Nama, alamat, atau koordinat lokasi tidak valid."},400);
+ const id=uid(),value={id,name,address,lat,lng,active:true,created_at:new Date().toISOString()};
+ await env.DB.prepare("INSERT INTO app_settings(setting_key,setting_value) VALUES(?,?)").bind("preset_location:"+id,JSON.stringify(value)).run();
+ await env.DB.prepare("INSERT INTO audit_logs(id,actor_id,action,entity_type,entity_id,detail) VALUES(?,?,'PRESET_LOCATION_CREATED','SETTING',?,?)").bind(uid(),user.id,id,name).run();
+ return json({ok:true,location:value},201);
+}
+const presetDelete=p.match(/^\/api\/admin\/presets\/([\w-]+)$/);
+if(presetDelete&&r.method==="DELETE"){
+ if(user.role!=="ADMIN")return json({error:"Hanya admin"},403);
+ const key="preset_location:"+presetDelete[1],row=await env.DB.prepare("SELECT setting_value FROM app_settings WHERE setting_key=?").bind(key).first();
+ if(!row)return json({error:"Lokasi preset tidak ditemukan"},404);
+ await env.DB.prepare("DELETE FROM app_settings WHERE setting_key=?").bind(key).run();
+ await env.DB.prepare("INSERT INTO audit_logs(id,actor_id,action,entity_type,entity_id,detail) VALUES(?,?,'PRESET_LOCATION_DELETED','SETTING',?,?)").bind(uid(),user.id,presetDelete[1],"Preset lokasi dihapus").run();
+ return json({ok:true});
+}
 if(p==="/api/pricing"&&r.method==="GET"){
  const d=await env.DB.prepare("SELECT service_type,rate_per_km,minimum_price FROM pricing_rules WHERE active=1 ORDER BY effective_from DESC").all();
  const latest={};for(const row of d.results||[])if(!latest[row.service_type])latest[row.service_type]=row;
