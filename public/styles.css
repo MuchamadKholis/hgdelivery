@@ -273,3 +273,11 @@ input:focus,select:focus,textarea:focus{border-color:#8baa5c;box-shadow:0 0 0 4p
  .action-panel .assignline button{width:100%}
  .export-tools{margin:8px 0}
 }
+.admin-order-views,.pagination{display:flex;gap:8px;align-items:center;justify-content:flex-end;flex-wrap:wrap;margin:12px 0}.admin-order-views .active{background:#24563f;color:white}.pagination span{font-size:12px;color:#718078}.role-history{margin-top:26px;border-top:1px solid var(--hg-line);padding-top:20px}.history-row{padding:12px 0;border-bottom:1px solid var(--hg-line)}.history-row p{margin:5px 0 0;color:var(--hg-muted);font-size:12px}.app-nav .tab{white-space:nowrap}
+
+.map-fullscreen-fallback{position:fixed!important;inset:0!important;z-index:3000!important;background:white;padding:12px}.map-fullscreen-fallback .map{height:calc(100vh - 24px)!important}.map-tools{display:flex;gap:8px;flex-wrap:wrap}.map-tools button{flex:1}
+@media(max-width:650px){.assignline.wa-actions{display:grid;grid-template-columns:1fr 1fr}.assignline.wa-actions a,.assignline.wa-actions button{width:100%;min-width:0;text-align:center}}
+
+.settings-tabs{display:flex;gap:8px;margin:0 0 22px}.settings-tabs button.active{background:#153b2d;color:#fff}.settings-tabs button{flex:1}
+
+.admin-actions-group{margin-top:14px;padding:12px;border:1px solid #dce8dc;border-radius:13px;background:#f5f9f4}.admin-actions-group> b{display:block;margin:0 0 8px;color:#153b2d;font-size:12px;letter-spacing:.5px}.admin-actions-group .action-panel{margin:8px 0;background:#fff}.admin-actions-group .action-panel:last-child{margin-bottom:0}
