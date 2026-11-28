@@ -341,7 +341,7 @@ if(activeMatch&&r.method==="PATCH"){
  await env.DB.prepare("INSERT INTO audit_logs(id,actor_id,action,entity_type,entity_id,detail) VALUES(?,?,?,?,?,?)").bind(uid(),user.id,b.active?"USER_ACTIVATED":"USER_DEACTIVATED","USER",target.id,target.role).run();
  return json({ok:true});
 }
-const assignMatch=p.match(/^\\/api\\/orders\\/([\\w-]+)\\/assign$/);
+const assignMatch=p.match(/^\/api\/orders\/([\w-]+)\/assign$/);
 if(assignMatch&&r.method==="PATCH"){
  if(user.role!=="ADMIN")return json({error:"Hanya admin"},403);
  const b=await body(r),courier=await env.DB.prepare("SELECT id FROM users WHERE id=? AND role='COURIER' AND active=1").bind(b?.courierId).first();
@@ -351,7 +351,7 @@ if(assignMatch&&r.method==="PATCH"){
  if(!["VERIFIED","RESCHEDULE","ON_TRIP"].includes(order.status))return json({error:"Kurir hanya dapat ditugaskan pada order yang sudah diverifikasi dan belum menyelesaikan trip."},409);
  const previous=order.status;
  await env.DB.batch([
-  env.DB.prepare("UPDATE orders SET courier_id=?,status='ON_TRIP',assigned_at=CASE WHEN status='VERIFIED' THEN CURRENT_TIMESTAMP ELSE assigned_at END,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status=?").bind(courier.id,order.id,previous),
+  env.DB.prepare("UPDATE orders SET courier_id=?,status='ON_TRIP',assigned_at=CASE WHEN status IN ('VERIFIED','RESCHEDULE') THEN CURRENT_TIMESTAMP ELSE assigned_at END,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status=?").bind(courier.id,order.id,previous),
   env.DB.prepare("INSERT INTO order_events(id,order_id,actor_id,from_status,to_status,note) VALUES(?,?,?,?,?,?)").bind(uid(),order.id,user.id,previous,"ON_TRIP",previous==="ON_TRIP"?"Kurir diganti: "+courier.id:"Kurir ditugaskan: "+courier.id),
   env.DB.prepare("INSERT INTO audit_logs(id,actor_id,action,entity_type,entity_id,detail) VALUES(?,?,?,?,?,?)").bind(uid(),user.id,previous==="ON_TRIP"?"COURIER_REASSIGNED":"COURIER_ASSIGNED","ORDER",order.id,courier.id)
  ]);
