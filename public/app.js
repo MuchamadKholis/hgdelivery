@@ -31,7 +31,6 @@ document.querySelectorAll("[data-search]").forEach(b=>b.onclick=()=>searchPlace(
 document.querySelectorAll("[data-gps]").forEach(b=>b.onclick=()=>{const k=b.dataset.gps;if(!navigator.geolocation)return alert("GPS tidak didukung");navigator.geolocation.getCurrentPosition(p=>{const a=p.coords.latitude,o=p.coords.longitude;activePin=k;maps.map.setView([a,o],17);setPoint(k,a,o,true)},()=>alert("GPS tidak dapat diakses. Periksa izin browser."),{enableHighAccuracy:true,timeout:12000})});
 $("#loginForm").onsubmit=async e=>{e.preventDefault();$("#loginError").textContent="";try{const d=await api("/api/auth/login",{method:"POST",body:JSON.stringify(Object.fromEntries(new FormData(e.target)))});start(d.user)}catch(x){$("#loginError").textContent=x.message}};
 $("#registerForm").onsubmit=async e=>{e.preventDefault();const msg=$("#registerMessage");msg.textContent="Membuat akun…";try{const d=await api("/api/auth/register",{method:"POST",body:JSON.stringify(Object.fromEntries(new FormData(e.target)))});msg.textContent="Akun customer berhasil dibuat.";start(d.user)}catch(x){msg.textContent=x.message}};
-$("#bootstrapForm").onsubmit=async e=>{e.preventDefault();const v=Object.fromEntries(new FormData(e.target));const msg=$("#bootstrapMessage");msg.textContent="";if(v.password!==v.passwordConfirm){msg.textContent="Konfirmasi password tidak sama.";return}delete v.passwordConfirm;try{const d=await api("/api/auth/bootstrap",{method:"POST",body:JSON.stringify(v)});e.target.reset();msg.textContent=d.message+" Setelah itu jalankan perintah penghapusan secret di Cloudflare."; }catch(x){msg.textContent=x.message+(x.diagnostic?" — Detail teknis: "+x.diagnostic:"")}};
 $("#logout").onclick=async()=>{await api("/api/auth/logout",{method:"POST"});location.reload()};
 document.querySelectorAll(".tab").forEach(b=>b.onclick=()=>{document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("active",x===b));["new","orders","users","pricing"].forEach(k=>$("#"+k).hidden=b.dataset.tab!==k);if(b.dataset.tab==="new")setTimeout(()=>maps.map.invalidateSize(),80);if(b.dataset.tab==="users")loadUsers();if(b.dataset.tab==="pricing")loadPricing()});
 let routeLine=null,routeKm=0,routeQuoteId="";
@@ -151,23 +150,31 @@ async function loadOrders(){
   })
  }catch(e){$("#orderList").textContent=e.message}
 }
+let activeUserRole="ADMIN";
 async function loadUsers(){
  try{
   const d=await api("/api/admin/users"),root=$("#userList");root.replaceChildren();
-  if(!d.users.length){root.innerHTML='<div class="empty">Belum ada pengguna.</div>';return}
-  d.users.forEach(u=>{
-   const el=document.createElement("article");el.className="order";
+  const users=(d.users||[]).filter(u=>u.role===activeUserRole);
+  if(!users.length){root.innerHTML='<div class="empty">Belum ada akun '+({ADMIN:"admin",COURIER:"kurir",CUSTOMER:"customer"}[activeUserRole])+".</div>";return}
+  users.forEach(u=>{
+   const el=document.createElement("article");el.className="order user-card";
    const head=document.createElement("div");head.className="orderhead";
-   const title=document.createElement("b");title.textContent=u.name+" · "+u.role;
+   const title=document.createElement("b");title.textContent=u.name;
    const status=document.createElement("span");status.className="pill";status.textContent=u.active?"Aktif":"Nonaktif";head.append(title,status);
-   const info=document.createElement("p");info.textContent=u.email+(u.phone?" · "+u.phone:"");
-   const btn=document.createElement("button");btn.type="button";btn.className="secondary";btn.textContent=u.active?"Nonaktifkan":"Aktifkan";btn.disabled=u.id===me.id;
-   btn.onclick=async()=>{btn.disabled=true;try{await api("/api/admin/users/"+encodeURIComponent(u.id)+"/active",{method:"PATCH",body:JSON.stringify({active:!u.active})});loadUsers()}catch(e){alert(e.message);btn.disabled=false}};
-   el.append(head,info,btn);root.append(el)
+   const info=document.createElement("p");info.textContent=({ADMIN:"ADMIN",COURIER:"KURIR",CUSTOMER:"CUSTOMER"}[u.role])+" · "+u.email+(u.phone?" · "+u.phone:"");
+   const actions=document.createElement("div");actions.className="user-actions";
+   const toggle=document.createElement("button");toggle.type="button";toggle.className="secondary";toggle.textContent=u.active?"Nonaktifkan":"Aktifkan";toggle.disabled=u.id===me.id;
+   toggle.onclick=async()=>{toggle.disabled=true;try{await api("/api/admin/users/"+encodeURIComponent(u.id)+"/active",{method:"PATCH",body:JSON.stringify({active:!u.active})});await loadUsers()}catch(e){alert(e.message);toggle.disabled=false}};
+   const reset=document.createElement("button");reset.type="button";reset.className="secondary";reset.textContent="Reset password";
+   reset.onclick=async()=>{const password=prompt("Masukkan password baru (minimal 12 karakter) untuk "+u.name+":");if(password===null)return;if(password.length<12){alert("Password minimal 12 karakter.");return}const again=prompt("Ulangi password baru:");if(again===null)return;if(password!==again){alert("Konfirmasi password tidak sama.");return}reset.disabled=true;try{const result=await api("/api/admin/users/"+encodeURIComponent(u.id)+"/password",{method:"POST",body:JSON.stringify({password})});alert(result.message||"Password berhasil direset.")}catch(e){alert(e.message)}finally{reset.disabled=false}};
+   const remove=document.createElement("button");remove.type="button";remove.className="danger";remove.textContent="Hapus akun";remove.disabled=u.id===me.id;
+   remove.onclick=async()=>{if(!confirm("Hapus akun "+u.name+"? Tindakan ini permanen dan hanya bisa dilakukan jika akun belum memiliki riwayat order."))return;remove.disabled=true;try{await api("/api/admin/users/"+encodeURIComponent(u.id),{method:"DELETE"});await loadUsers()}catch(e){alert(e.message);remove.disabled=false}};
+   actions.append(toggle,reset,remove);el.append(head,info,actions);root.append(el)
   })
  }catch(e){$("#userList").textContent=e.message}
 }
-$("#userForm").onsubmit=async e=>{e.preventDefault();const msg=$("#userMessage"),v=Object.fromEntries(new FormData(e.target));msg.textContent="";try{await api("/api/admin/users",{method:"POST",body:JSON.stringify(v)});e.target.reset();msg.textContent="Pengguna berhasil dibuat.";loadUsers()}catch(x){msg.textContent=x.message}};
+document.querySelectorAll(".user-role-tab").forEach(button=>button.onclick=()=>{activeUserRole=button.dataset.role;document.querySelectorAll(".user-role-tab").forEach(x=>x.classList.toggle("active",x===button));$("#userRoleInput").value=activeUserRole;$("#userFormTitle").textContent="Tambah "+({ADMIN:"Admin",COURIER:"Kurir",CUSTOMER:"Customer"}[activeUserRole]);$("#createUserButton").textContent="Buat "+({ADMIN:"Admin",COURIER:"Kurir",CUSTOMER:"Customer"}[activeUserRole]);loadUsers()});
+$("#userForm").onsubmit=async e=>{e.preventDefault();const msg=$("#userMessage"),v=Object.fromEntries(new FormData(e.target));v.role=activeUserRole;msg.textContent="";try{await api("/api/admin/users",{method:"POST",body:JSON.stringify(v)});e.target.reset();$("#userRoleInput").value=activeUserRole;msg.textContent=({ADMIN:"Admin",COURIER:"Kurir",CUSTOMER:"Customer"}[activeUserRole])+" berhasil dibuat.";await loadUsers()}catch(x){msg.textContent=x.message}};
 $("#refreshUsers").onclick=loadUsers;
 async function loadPublicPricing(){try{const d=await api("/api/pricing");publicPricing={};(d.rules||[]).forEach(r=>publicPricing[r.service_type]=r);updateFare()}catch{}}
 async function loadPricing(){
