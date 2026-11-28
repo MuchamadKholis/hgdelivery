@@ -159,12 +159,15 @@ if(proofUploadParts.length===5&&proofUploadParts[1]==="api"&&proofUploadParts[2]
  const png=head.length>=8&&head[0]===0x89&&head[1]===0x50&&head[2]===0x4e&&head[3]===0x47&&head[4]===0x0d&&head[5]===0x0a&&head[6]===0x1a&&head[7]===0x0a;
  const webp=head.length>=12&&String.fromCharCode(...head.slice(0,4))==="RIFF"&&String.fromCharCode(...head.slice(8,12))==="WEBP";
  if(!((file.type==="image/jpeg"&&jpeg)||(file.type==="image/png"&&png)||(file.type==="image/webp"&&webp)))return json({error:"Isi file tidak sesuai dengan format gambar yang diizinkan"},415);
+ if(order.status!=="ON_TRIP")return json({error:"Bukti hanya dapat diunggah saat status On Trip."},409);
  const meta=await uploadDriveProof(env,file,orderId),proofId=uid();
  await env.DB.batch([
   env.DB.prepare("INSERT INTO order_proofs(id,order_id,uploaded_by,object_key,content_type,size_bytes,label) VALUES(?,?,?,?,?,?,?)").bind(proofId,orderId,user.id,meta.id,file.type,file.size,label),
+  env.DB.prepare("UPDATE orders SET status='TRIP_COMPLETED',completed_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='ON_TRIP'").bind(orderId),
+  env.DB.prepare("INSERT INTO order_events(id,order_id,actor_id,from_status,to_status,note) VALUES(?,?,?,'ON_TRIP','TRIP_COMPLETED',?)").bind(uid(),orderId,user.id,"Bukti pembayaran diunggah: "+label),
   env.DB.prepare("INSERT INTO audit_logs(id,actor_id,action,entity_type,entity_id,detail) VALUES(?,?,'ORDER_PROOF_UPLOADED','ORDER',?,?)").bind(uid(),user.id,orderId,label+" · "+file.type+" · "+file.size+" bytes")
  ]);
- return json({ok:true,proof:{id:proofId,label,content_type:file.type,size_bytes:file.size,created_at:new Date().toISOString()}},201);
+ return json({ok:true,status:"TRIP_COMPLETED",proof:{id:proofId,label,content_type:file.type,size_bytes:file.size,created_at:new Date().toISOString()}},201);
 }
 const orderProofsMatch=p.match(/^\/api\/orders\/([\w-]+)\/proofs$/);
 if(orderProofsMatch&&r.method==="GET"){
@@ -211,6 +214,67 @@ if(orderPaymentsMatch&&r.method==="POST"){
   throw e;
  }
  return json({ok:true,payment_id:id},201);
+}
+const orderRescheduleMatch=p.match(/^\/api\/orders\/([\w-]+)\/reschedule$/);
+if(orderRescheduleMatch&&r.method==="PATCH"){
+ if(user.role!=="ADMIN")return json({error:"Hanya admin"},403);
+ const b=await body(r);
+ if(typeof b?.pickup_datetime!=="string"||!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(b.pickup_datetime))return json({error:"Pilih tanggal dan jam baru yang valid."},400);
+ const old=await env.DB.prepare("SELECT status,pickup_datetime FROM orders WHERE id=?").bind(orderRescheduleMatch[1]).first();
+ if(!old)return json({error:"Order tidak ditemukan"},404);
+ if(!["NEW_ORDER","RESCHEDULE"].includes(old.status))return json({error:"Order pada tahap ini tidak dapat dijadwalkan ulang."},409);
+ await env.DB.batch([
+  env.DB.prepare("UPDATE orders SET pickup_datetime=?,status='RESCHEDULE',updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(b.pickup_datetime,orderRescheduleMatch[1]),
+  env.DB.prepare("INSERT INTO order_events(id,order_id,actor_id,from_status,to_status,note) VALUES(?,?,?,?,?,'Jadwal penjemputan diperbarui')").bind(uid(),orderRescheduleMatch[1],user.id,old.status,"RESCHEDULE"),
+  env.DB.prepare("INSERT INTO audit_logs(id,actor_id,action,entity_type,entity_id,detail) VALUES(?,?,'ORDER_RESCHEDULED','ORDER',?,?)").bind(uid(),user.id,orderRescheduleMatch[1],old.pickup_datetime+" -> "+b.pickup_datetime)
+ ]);
+ return json({ok:true,status:"RESCHEDULE",pickup_datetime:b.pickup_datetime});
+}
+const orderDistanceMatch=p.match(/^\/api\/orders\/([\w-]+)\/distance$/);
+if(orderDistanceMatch&&r.method==="PATCH"){
+ if(user.role!=="ADMIN")return json({error:"Hanya admin"},403);
+ const b=await body(r),distance=Number(b?.distance_km);
+ if(!Number.isFinite(distance)||distance<=0||distance>1000)return json({error:"Jarak harus lebih dari 0 dan maksimal 1.000 km."},400);
+ const old=await env.DB.prepare("SELECT status,customer_rate_per_km,courier_rate_per_km FROM orders WHERE id=?").bind(orderDistanceMatch[1]).first();
+ if(!old)return json({error:"Order tidak ditemukan"},404);
+ if(old.status==="SUCCESS"||old.status==="CANCEL")return json({error:"Order final tidak dapat diubah."},409);
+ const total=Math.max(0,Math.round(distance*Number(old.customer_rate_per_km||0))),courier=Math.min(total,Math.round(distance*Number(old.courier_rate_per_km||0))),company=total-courier;
+ await env.DB.batch([
+  env.DB.prepare("UPDATE orders SET distance_km=?,total_payment=?,price=?,courier_share=?,company_share=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(distance,total,total,courier,company,orderDistanceMatch[1]),
+  env.DB.prepare("INSERT INTO audit_logs(id,actor_id,action,entity_type,entity_id,detail) VALUES(?,?,'ORDER_DISTANCE_CORRECTED','ORDER',?,?)").bind(uid(),user.id,orderDistanceMatch[1],"Jarak menjadi "+distance+" km; total "+total)
+ ]);
+ return json({ok:true,distance_km:distance,total_payment:total});
+}
+const orderPaymentStatusMatch=p.match(/^\/api\/orders\/([\w-]+)\/payment-status$/);
+if(orderPaymentStatusMatch&&r.method==="PATCH"){
+ if(user.role!=="ADMIN")return json({error:"Hanya admin"},403);
+ const b=await body(r),approved=b?.status;
+ if(!["VERIFIED","PENDING"].includes(approved))return json({error:"Pilih Verified atau Pending."},400);
+ const old=await env.DB.prepare("SELECT status,payment_status FROM orders WHERE id=?").bind(orderPaymentStatusMatch[1]).first();
+ if(!old)return json({error:"Order tidak ditemukan"},404);
+ if(old.status==="SUCCESS")return json({error:"Order Success terkunci permanen."},409);
+ if(old.status!=="TRIP_COMPLETED"&&old.status!=="PENDING_PAYMENT")return json({error:"Pembayaran hanya dapat diverifikasi setelah trip selesai."},409);
+ const next=approved==="VERIFIED"?"SUCCESS":"PENDING_PAYMENT",pay=approved==="VERIFIED"?"PAID":"PENDING";
+ await env.DB.batch([
+  env.DB.prepare("UPDATE orders SET status=?,payment_status=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(next,pay,orderPaymentStatusMatch[1]),
+  env.DB.prepare("INSERT INTO order_events(id,order_id,actor_id,from_status,to_status,note) VALUES(?,?,?,?,?,?)").bind(uid(),orderPaymentStatusMatch[1],user.id,old.status,next,"Pembayaran "+approved.toLowerCase()),
+  env.DB.prepare("INSERT INTO audit_logs(id,actor_id,action,entity_type,entity_id,detail) VALUES(?,?,?,?,?,?)").bind(uid(),user.id,"PAYMENT_STATUS_CHANGED","ORDER",orderPaymentStatusMatch[1],old.status+" -> "+next)
+ ]);
+ return json({ok:true,status:next,payment_status:pay});
+}
+if(p==="/api/admin/orders/export"&&r.method==="GET"){
+ if(user.role!=="ADMIN")return json({error:"Hanya admin"},403);
+ const from=u.searchParams.get("from"),to=u.searchParams.get("to");
+ if((from&&!/^\d{4}-\d{2}-\d{2}$/.test(from))||(to&&!/^\d{4}-\d{2}-\d{2}$/.test(to))||(from&&to&&from>to))return json({error:"Rentang tanggal tidak valid."},400);
+ const clauses=[],args=[];
+ if(from){clauses.push("date(o.created_at)>=date(?)");args.push(from)}
+ if(to){clauses.push("date(o.created_at)<=date(?)");args.push(to)}
+ const where=clauses.length?" WHERE "+clauses.join(" AND "):"";
+ const data=await env.DB.prepare("SELECT o.order_code,o.type,o.created_at,o.pickup_datetime,o.customer_name,o.customer_phone,o.customer_email,o.pickup_label,o.destination_label,o.distance_km,o.vehicle,o.passenger_count,o.item_type,o.item_weight_kg,o.recipient_name,o.recipient_phone,o.delivery_speed,o.payment_method,o.total_payment,o.courier_share,o.company_share,o.courier_rate_per_km,o.customer_rate_per_km,o.status,o.payment_status,c.name courier_name,c.phone courier_phone,o.notes FROM orders o LEFT JOIN users c ON c.id=o.courier_id"+where+" ORDER BY o.created_at DESC").bind(...args).all();
+ const cols=["order_code","type","created_at","pickup_datetime","customer_name","customer_phone","customer_email","pickup_label","destination_label","distance_km","vehicle","passenger_count","item_type","item_weight_kg","recipient_name","recipient_phone","delivery_speed","payment_method","total_payment","courier_share","company_share","courier_rate_per_km","customer_rate_per_km","status","payment_status","courier_name","courier_phone","notes"];
+ const esc=v=>'"'+String(v??"").replaceAll('"','""')+'"';
+ const csv=[cols.join(","),...(data.results||[]).map(row=>cols.map(k=>esc(row[k])).join(","))].join("\r\n");
+ return new Response("\uFEFF"+csv,{headers:{"content-type":"text/csv; charset=utf-8","content-disposition":"attachment; filename=HGDelivery_orders_"+(from||"all")+"_"+(to||"all")+".csv","cache-control":"no-store"}});
 }
 if(p==="/api/admin/dashboard"&&r.method==="GET"){
  if(user.role!=="ADMIN")return json({error:"Hanya admin"},403);
@@ -268,26 +332,28 @@ if(assignMatch&&r.method==="PATCH"){
  if(!courier)return json({error:"Pilih akun kurir aktif yang valid"},400);
  const order=await env.DB.prepare("SELECT id,courier_id,status FROM orders WHERE id=?").bind(assignMatch[1]).first();
  if(!order)return json({error:"Order tidak ditemukan"},404);
+ if(order.status==="SUCCESS"||order.status==="CANCEL")return json({error:"Order final tidak dapat diubah."},409);
+ if(order.status!=="VERIFIED")return json({error:"Verifikasi order terlebih dahulu sebelum memilih kurir."},409);
  await env.DB.batch([
-  env.DB.prepare("UPDATE orders SET courier_id=?,assigned_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(courier.id,order.id),
-  env.DB.prepare("INSERT INTO order_events(id,order_id,actor_id,from_status,to_status,note) VALUES(?,?,?,?,?,?)").bind(uid(),order.id,user.id,order.status,order.status,"Kurir ditugaskan: "+courier.id),
+  env.DB.prepare("UPDATE orders SET courier_id=?,status='ON_TRIP',assigned_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='VERIFIED'").bind(courier.id,order.id),
+  env.DB.prepare("INSERT INTO order_events(id,order_id,actor_id,from_status,to_status,note) VALUES(?,?,?,'VERIFIED','ON_TRIP',?)").bind(uid(),order.id,user.id,"Kurir ditugaskan: "+courier.id),
   env.DB.prepare("INSERT INTO audit_logs(id,actor_id,action,entity_type,entity_id,detail) VALUES(?,?,'COURIER_ASSIGNED','ORDER',?,?)").bind(uid(),user.id,order.id,courier.id)
  ]);
- return json({ok:true});
+ return json({ok:true,status:"ON_TRIP"});
 }
 if(p==="/api/admin/pricing"&&r.method==="GET"){
  if(user.role!=="ADMIN")return json({error:"Hanya admin"},403);
- const d=await env.DB.prepare("SELECT id,service_type,rate_per_km,minimum_price,effective_from FROM pricing_rules WHERE active=1 ORDER BY service_type").all();
+ const d=await env.DB.prepare("SELECT id,service_type,rate_per_km,courier_rate_per_km,minimum_price,effective_from FROM pricing_rules WHERE active=1 ORDER BY service_type").all();
  return json({rules:d.results});
 }
 if(p==="/api/admin/pricing"&&r.method==="POST"){
  if(user.role!=="ADMIN")return json({error:"Hanya admin"},403);
  const b=await body(r),types=["RIDE_MOTOR","RIDE_CAR","SEND"];
- if(!types.includes(b?.service_type)||!Number.isSafeInteger(b.rate_per_km)||!Number.isSafeInteger(b.minimum_price)||b.rate_per_km<0||b.rate_per_km>10000000||b.minimum_price<0||b.minimum_price>100000000)return json({error:"Jenis layanan atau tarif tidak valid"},400);
+ if(!types.includes(b?.service_type)||!Number.isSafeInteger(b.rate_per_km)||!Number.isSafeInteger(b.courier_rate_per_km)||!Number.isSafeInteger(b.minimum_price)||b.rate_per_km<0||b.rate_per_km>10000000||b.courier_rate_per_km<0||b.courier_rate_per_km>b.rate_per_km||b.minimum_price<0||b.minimum_price>100000000)return json({error:"Tarif customer/kurir tidak valid. Tarif kurir tidak boleh melebihi tarif customer."},400);
  const id=uid();
  await env.DB.batch([
   env.DB.prepare("UPDATE pricing_rules SET active=0 WHERE service_type=? AND active=1").bind(b.service_type),
-  env.DB.prepare("INSERT INTO pricing_rules(id,service_type,rate_per_km,minimum_price,active) VALUES(?,?,?,?,1)").bind(id,b.service_type,b.rate_per_km,b.minimum_price),
+  env.DB.prepare("INSERT INTO pricing_rules(id,service_type,rate_per_km,courier_rate_per_km,minimum_price,active) VALUES(?,?,?,?,?,1)").bind(id,b.service_type,b.rate_per_km,b.courier_rate_per_km,b.minimum_price),
   env.DB.prepare("INSERT INTO audit_logs(id,actor_id,action,entity_type,entity_id,detail) VALUES(?,?,'PRICING_UPDATED','PRICING',?,?)").bind(uid(),user.id,id,b.service_type+" rate="+b.rate_per_km+" minimum="+b.minimum_price)
  ]);
  return json({ok:true,id},201);
@@ -310,9 +376,10 @@ if(p==="/api/orders"&&r.method==="POST"){
  const serviceKey=b.type==="RIDE"?(vehicle==="Mobil"?"RIDE_CAR":"RIDE_MOTOR"):"SEND";
  const pricing=await env.DB.prepare("SELECT rate_per_km,minimum_price FROM pricing_rules WHERE service_type=? AND active=1 ORDER BY effective_from DESC LIMIT 1").bind(serviceKey).first();
  const rate=Number(pricing?.rate_per_km??(serviceKey==="RIDE_CAR"?3500:serviceKey==="SEND"?2000:1500));
+ const courierRate=Number(pricing?.courier_rate_per_km??1000);
  const minimum=Number(pricing?.minimum_price??(b.type==="SEND"?6000:5000));
  const total=Math.max(minimum,Math.round(distance*rate));
- const company=b.type==="RIDE"?Math.round(total*2/3):Math.round(total*0.75),courier=total-company;
+ const courier=Math.min(total,Math.round(distance*courierRate)),company=total-courier;
  const speed=b.type==="SEND"?(String(b.delivery_speed||"SAME_DAY").toUpperCase().replaceAll(" ","_")==="KILAT"?"KILAT":"SAME_DAY"):null;
  const oid=uid();
  const jakartaParts=new Intl.DateTimeFormat("en-GB",{timeZone:"Asia/Jakarta",year:"2-digit",month:"2-digit"}).formatToParts(new Date());
@@ -340,25 +407,24 @@ if(p==="/api/orders"&&r.method==="POST"){
   }catch(e){if(!String(e?.message||e).includes("UNIQUE constraint failed: orders.order_code")||attempt===4)throw e}
  }
  if(!inserted)return json({error:"Gagal membuat nomor order. Silakan coba kembali."},409);
- await env.DB.prepare("INSERT INTO order_events(id,order_id,actor_id,to_status,note) VALUES(?,?,?,'NEW_ORDER','Order dibuat')").bind(uid(),oid,user.id).run();
- return json({ok:true,order_code:code,total_payment:total,courier_share:courier,company_share:company,distance_km:distance},201);
+ await env.DB.batch([
+  env.DB.prepare("UPDATE orders SET courier_rate_per_km=?,customer_rate_per_km=?,created_by_id=? WHERE id=?").bind(courierRate,rate,user.id,oid),
+  env.DB.prepare("INSERT INTO order_events(id,order_id,actor_id,to_status,note) VALUES(?,?,?,'NEW_ORDER','Order dibuat')").bind(uid(),oid,user.id),
+  env.DB.prepare("INSERT INTO audit_logs(id,actor_id,action,entity_type,entity_id,detail) VALUES(?,?,'ORDER_CREATED','ORDER',?,?)").bind(uid(),user.id,oid,"Order "+code+" dibuat oleh "+user.role)
+ ]);
+ return json({ok:true,order_code:code,total_payment:total,distance_km:distance},201);
 }
 const m=p.match(/^\/api\/orders\/([\w-]+)\/status$/);
 if(m&&r.method==="PATCH"){
- const b=await body(r),adminStatuses=["VERIFIED","PROCESS","ON_TRIP","TRIP_COMPLETED","SUCCESS","RESCHEDULE","CANCEL","PENDING_PAYMENT"],courierStatuses=["ON_TRIP","TRIP_COMPLETED"];
- if(user.role!=="ADMIN"&&user.role!=="COURIER")return json({error:"Tidak berhak mengubah status"},403);
- if(user.role==="ADMIN"&&!adminStatuses.includes(b?.status))return json({error:"Status tidak valid"},400);
- if(user.role==="COURIER"&&!courierStatuses.includes(b?.status))return json({error:"Kurir hanya dapat memperbarui status perjalanan"},403);
- const old=await env.DB.prepare("SELECT status,courier_id FROM orders WHERE id=?").bind(m[1]).first();
+ const b=await body(r);
+ if(user.role!=="ADMIN")return json({error:"Hanya admin yang dapat mengubah status order."},403);
+ const old=await env.DB.prepare("SELECT status FROM orders WHERE id=?").bind(m[1]).first();
  if(!old)return json({error:"Order tidak ditemukan"},404);
- if(user.role==="COURIER"&&old.courier_id!==user.id)return json({error:"Order ini bukan tugas Anda"},403);
- if(user.role==="COURIER"&&old.status!=="PROCESS"&&!(old.status==="ON_TRIP"&&b.status==="TRIP_COMPLETED"))return json({error:"Status order belum memungkinkan diperbarui oleh kurir"},409);
- const transitions={NEW_ORDER:["VERIFIED","CANCEL"],VERIFIED:["PROCESS","PENDING_PAYMENT","CANCEL","RESCHEDULE"],PENDING_PAYMENT:["VERIFIED","CANCEL"],PROCESS:["ON_TRIP","CANCEL","RESCHEDULE"],ON_TRIP:["TRIP_COMPLETED","CANCEL"],TRIP_COMPLETED:["SUCCESS"],RESCHEDULE:["VERIFIED","PROCESS","CANCEL"],SUCCESS:[],CANCEL:[]};
- if(user.role==="ADMIN"&&!(transitions[old.status]||[]).includes(b.status))return json({error:"Perubahan status tidak sesuai alur order saat ini"},409);
- const completed=["TRIP_COMPLETED","SUCCESS"].includes(b.status)?"CURRENT_TIMESTAMP":"NULL";
- const cancelled=b.status==="CANCEL"?"CURRENT_TIMESTAMP":"NULL";
+ if(old.status==="SUCCESS"||old.status==="CANCEL")return json({error:"Order final tidak dapat diubah lagi."},409);
+ const transitions={NEW_ORDER:["VERIFIED","RESCHEDULE","CANCEL"],RESCHEDULE:["VERIFIED","CANCEL"]};
+ if(!(transitions[old.status]||[]).includes(b?.status))return json({error:"Alur status tidak valid. Order hanya dapat diverifikasi, dijadwalkan ulang, atau dibatalkan pada tahap ini."},409);
  await env.DB.batch([
-  env.DB.prepare("UPDATE orders SET status=?,updated_at=CURRENT_TIMESTAMP,completed_at="+completed+",cancelled_at="+cancelled+" WHERE id=?").bind(b.status,m[1]),
+  env.DB.prepare("UPDATE orders SET status=?,updated_at=CURRENT_TIMESTAMP,cancelled_at=CASE WHEN ?='CANCEL' THEN CURRENT_TIMESTAMP ELSE cancelled_at END WHERE id=?").bind(b.status,b.status,m[1]),
   env.DB.prepare("INSERT INTO order_events(id,order_id,actor_id,from_status,to_status,note) VALUES(?,?,?,?,?,?)").bind(uid(),m[1],user.id,old.status,b.status,typeof b.note==="string"?b.note.slice(0,500):null),
   env.DB.prepare("INSERT INTO audit_logs(id,actor_id,action,entity_type,entity_id,detail) VALUES(?,?,?,?,?,?)").bind(uid(),user.id,"ORDER_STATUS_CHANGED","ORDER",m[1],old.status+" -> "+b.status)
  ]);
