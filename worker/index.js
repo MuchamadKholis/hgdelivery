@@ -189,7 +189,7 @@ if(proofParts.length===4&&proofParts[1]==="api"&&proofParts[2]==="proofs"&&proof
  return new Response(file.body,{headers:{"content-type":proof.content_type,"content-length":String(proof.size_bytes),"cache-control":"private, no-store","x-content-type-options":"nosniff","content-disposition":"inline"}});
 }
 
-const orderPaymentsMatch=p.match(/^\\/api\\/orders\\/([\\w-]+)\\/payments$/);
+const orderPaymentsMatch=p.match(/^\/api\/orders\/([\w-]+)\/payments$/);
 if(orderPaymentsMatch&&(r.method==="GET"||r.method==="POST"))return json({error:"Pencatatan nominal pembayaran tidak digunakan. Status pembayaran dikelola melalui Verified atau Pending."},410);
 if(p==="/api/admin/dashboard"&&r.method==="GET"){
  if(user.role!=="ADMIN")return json({error:"Hanya admin"},403);
