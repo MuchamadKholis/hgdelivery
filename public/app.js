@@ -46,7 +46,7 @@ async function loadSummary(){
 }
 async function loadOrders(){
  try{
-  const d=await api("/api/orders"),root=$("#orderList");root.replaceChildren();let orders=d.orders;const sf=$("#filterService")?.value||"ALL",st=$("#filterStatus")?.value||"ALL";if(sf!=="ALL")orders=orders.filter(o=>o.type===sf);if(st!=="ALL")orders=orders.filter(o=>o.status===st);
+  const d=await api("/api/orders"),root=$("#orderList");root.replaceChildren();let orders=d.orders;const sf=$("#filterService")?.value||"ALL",st=$("#filterStatus")?.value||"ALL",from=$("#filterDateFrom")?.value||"",to=$("#filterDateTo")?.value||"";if(sf!=="ALL")orders=orders.filter(o=>o.type===sf);if(st!=="ALL")orders=orders.filter(o=>o.status===st);if(from)orders=orders.filter(o=>String(o.created_at||"").slice(0,10)>=from);if(to)orders=orders.filter(o=>String(o.created_at||"").slice(0,10)<=to);
   if(!orders.length){root.innerHTML='<div class="empty">Belum ada order.</div>';return}
   let couriers=[];
   if(me.role==="ADMIN"){const ud=await api("/api/admin/users");couriers=ud.users.filter(x=>x.role==="COURIER"&&x.active)}
@@ -55,18 +55,8 @@ async function loadOrders(){
    const h=document.createElement("div");h.className="orderhead";
    const b=document.createElement("b");b.textContent=o.order_code+" · "+o.type;
    const s=document.createElement("span");s.className="pill";s.textContent=o.status.replaceAll("_"," ");h.append(b,s);
-   const paymentLine=document.createElement("p");paymentLine.className="payment-status";paymentLine.textContent="Pembayaran: "+(o.payment_status||"UNPAID");el.append(paymentLine);
-   if(me.role==="ADMIN"||me.role==="CUSTOMER")fetch("/api/orders/"+encodeURIComponent(o.id)+"/payments",{credentials:"same-origin"}).then(async res=>{const data=await res.json();if(!res.ok)throw Error(data.error||"Gagal memuat pembayaran");if(data.payments.length){const last=data.payments[0];const detail=document.createElement("small");detail.className="payment-detail";detail.textContent="Tercatat: Rp "+Number(last.amount).toLocaleString("id-ID")+" · "+({CASH:"Tunai",BANK_TRANSFER:"Transfer bank",QRIS:"QRIS",OTHER:"Lainnya"}[last.method]||last.method)+" · "+new Date(last.paid_at+"Z").toLocaleString("id-ID");el.append(detail)}}).catch(()=>{});
-   if(me.role==="ADMIN"&&o.payment_status!=="PAID"){
-    const pay=document.createElement("div");pay.className="payment-entry";
-    const amount=document.createElement("input");amount.type="number";amount.min="1";amount.max="100000000";amount.step="1";amount.placeholder="Nominal diterima (Rp)";
-    const method=document.createElement("select");[["CASH","Tunai"],["BANK_TRANSFER","Transfer bank"],["QRIS","QRIS"],["OTHER","Lainnya"]].forEach(([v,t])=>{const op=document.createElement("option");op.value=v;op.textContent=t;method.append(op)});
-    const reference=document.createElement("input");reference.maxLength=100;reference.placeholder="Referensi transaksi (opsional)";
-    const record=document.createElement("button");record.type="button";record.className="secondary";record.textContent="Catat pembayaran diterima";
-    record.onclick=async()=>{const value=Number(amount.value);if(!Number.isSafeInteger(value)||value<1){alert("Isi nominal pembayaran yang valid.");return}record.disabled=true;try{await api("/api/orders/"+encodeURIComponent(o.id)+"/payments",{method:"POST",body:JSON.stringify({amount:value,method:method.value,reference:reference.value})});await loadOrders()}catch(err){alert(err.message);record.disabled=false}};
-    pay.append(amount,method,reference,record);el.append(pay);
-   }
-   const people=document.createElement("p");people.textContent=(o.customer_name||"Pemesan")+" ("+(o.customer_phone||"-")+")"+(o.recipient_name?" · Penerima: "+o.recipient_name+" ("+(o.recipient_phone||"-")+")":"");const p=document.createElement("p");p.textContent="Dari: "+o.pickup_label+" → Ke: "+o.destination_label;const details=document.createElement("p");details.textContent="Jarak: "+Number(o.distance_km||0).toFixed(1)+" km · Total bayar: "+rupiah(o.total_payment||o.price||0)+" ("+(o.payment_method||"Individual")+") · Argo kurir: "+rupiah(o.courier_share||0);const courier=document.createElement("p");courier.textContent="Kurir: "+(o.courier_name||"Belum ditugaskan")+" · Bukti foto tersedia di bagian bawah order";const t=document.createElement("small");t.textContent="Jadwal: "+(o.pickup_datetime||"-")+" · Dibuat: "+new Date(o.created_at+"Z").toLocaleString("id-ID");el.append(h,people,p,details,courier,t);
+   const paymentLine=document.createElement("p");paymentLine.className="payment-status";paymentLine.textContent="Pembayaran: "+(o.payment_status==="PAID"?"Verified":o.payment_status==="PENDING"?"Pending":"Belum diverifikasi");el.append(paymentLine);
+   const people=document.createElement("p");people.textContent=(o.customer_name||"Pemesan")+" ("+(o.customer_phone||"-")+")"+(o.recipient_name?" · Penerima: "+o.recipient_name+" ("+(o.recipient_phone||"-")+")":"");const p=document.createElement("p");p.textContent="Dari: "+o.pickup_label+" → Ke: "+o.destination_label;const details=document.createElement("p");details.textContent="Jarak: "+Number(o.distance_km||0).toFixed(1)+" km · Total bayar: "+rupiah(o.total_payment||o.price||0)+" ("+(o.payment_method||"Individual")+")"+(me.role==="ADMIN"?" · Argo kurir: "+rupiah(o.courier_share||0)+" · Perusahaan: "+rupiah(o.company_share||0):"");const courier=document.createElement("p");courier.textContent="Kurir: "+(o.courier_name||"Belum ditugaskan")+" · Bukti foto tersedia di bagian bawah order";const t=document.createElement("small");t.textContent="Jadwal: "+(o.pickup_datetime||"-")+" · Dibuat: "+new Date(o.created_at+"Z").toLocaleString("id-ID");el.append(h,people,p,details,courier,t);
    const waLines=o.type==="RIDE"?["*HGRIDE — DETAIL ORDER*","Order No: *"+o.order_code+"*","Customer: "+(o.customer_name||"")+" ("+(o.customer_phone||"-")+")","Jadwal: "+(o.pickup_datetime||"-"),"Kendaraan: "+(o.vehicle||"Motor")+" ("+(o.passenger_count||1)+" org)","Jemput: "+o.pickup_label,"Tujuan: "+o.destination_label,"Jarak: "+o.distance_km+" km","Total Argo: *"+rupiah(o.total_payment||o.price)+"* ("+(o.payment_method||"Individual")+")",o.notes?"Catatan: "+o.notes:""]:["*HGSEND — DETAIL ORDER*","Order No: *"+o.order_code+"*","Pengirim: "+(o.customer_name||"")+" ("+(o.customer_phone||"-")+")","Penerima: "+(o.recipient_name||"-")+" ("+(o.recipient_phone||"-")+")","Barang: "+(o.item_type||o.item_description||"-")+" ("+(o.item_weight_kg||"-")+" kg) · "+(o.delivery_speed||"SAME_DAY"),"Jadwal: "+(o.pickup_datetime||"-"),"Jemput: "+o.pickup_label,"Tujuan: "+o.destination_label,"Jarak: "+o.distance_km+" km","Total Argo: *"+rupiah(o.total_payment||o.price)+"* ("+(o.payment_method||"Individual")+")",o.notes?"Catatan: "+o.notes:""];
    const waText=waLines.filter(Boolean).join("\n"),waActions=document.createElement("div");waActions.className="assignline";
    const copyWa=document.createElement("button");copyWa.type="button";copyWa.className="secondary";copyWa.textContent="Salin Format WA";copyWa.onclick=async()=>{try{await navigator.clipboard.writeText(waText);copyWa.textContent="Tersalin"}catch{alert("Browser tidak mengizinkan salin otomatis.")}};
@@ -86,24 +76,53 @@ async function loadOrders(){
    const proofList=document.createElement("div");proofList.className="proof-list";proofList.textContent="Memuat bukti…";proofBox.append(proofList);
    const renderProofs=proofs=>{proofList.replaceChildren();if(!proofs.length){proofList.textContent="Belum ada foto bukti.";return}proofs.forEach(pr=>{const link=document.createElement("a");link.href="/api/proofs/"+encodeURIComponent(pr.id);link.target="_blank";link.rel="noopener";link.textContent=pr.label+" · "+new Date(pr.created_at+"Z").toLocaleString("id-ID")+" · "+Math.ceil(pr.size_bytes/1024)+" KB";proofList.append(link)})};
    fetch("/api/orders/"+encodeURIComponent(o.id)+"/proofs",{credentials:"same-origin"}).then(async res=>{const data=await res.json();if(!res.ok)throw Error(data.error||"Gagal memuat bukti");renderProofs(data.proofs)}).catch(err=>{proofList.textContent=err.message});
-   if(me.role==="COURIER"&&o.courier_id===me.id){
+   if(me.role==="COURIER"&&o.courier_id===me.id&&o.status==="ON_TRIP"){
     const upload=document.createElement("div");upload.className="proof-upload";
     const file=document.createElement("input");file.type="file";file.accept="image/jpeg,image/png,image/webp";file.setAttribute("aria-label","Pilih foto bukti");
     const label=document.createElement("input");label.type="text";label.maxLength=80;label.placeholder="Keterangan foto (opsional)";
     const send=document.createElement("button");send.type="button";send.className="secondary";send.textContent="Unggah bukti";
-    send.onclick=async()=>{if(!file.files?.[0]){alert("Pilih foto terlebih dahulu.");return}send.disabled=true;const fd=new FormData();fd.append("file",file.files[0]);fd.append("label",label.value||"Bukti");try{const res=await fetch("/api/orders/"+encodeURIComponent(o.id)+"/proofs",{method:"POST",credentials:"same-origin",body:fd});const data=await res.json().catch(()=>({}));if(!res.ok)throw Error(data.error||"Upload gagal");file.value="";label.value="";send.textContent="Terkirim";const refresh=await fetch("/api/orders/"+encodeURIComponent(o.id)+"/proofs",{credentials:"same-origin"});const list=await refresh.json();renderProofs(list.proofs)}catch(err){alert(err.message);send.disabled=false}};
+    send.onclick=async()=>{if(!file.files?.[0]){alert("Pilih foto terlebih dahulu.");return}send.disabled=true;const fd=new FormData();fd.append("file",file.files[0]);fd.append("label",label.value||"Bukti");try{const res=await fetch("/api/orders/"+encodeURIComponent(o.id)+"/proofs",{method:"POST",credentials:"same-origin",body:fd});const data=await res.json().catch(()=>({}));if(!res.ok)throw Error(data.error||"Upload gagal");file.value="";label.value="";send.textContent="Terkirim";const refresh=await fetch("/api/orders/"+encodeURIComponent(o.id)+"/proofs",{credentials:"same-origin"});const list=await refresh.json();renderProofs(list.proofs);await loadOrders()}catch(err){alert(err.message);send.disabled=false}};
     upload.append(file,label,send);proofBox.append(upload);
    }
    el.append(proofBox);
-   if(me.role==="ADMIN"||me.role==="COURIER"){
-    const adminTransitions={NEW_ORDER:["VERIFIED","CANCEL"],VERIFIED:["PROCESS","PENDING_PAYMENT","CANCEL","RESCHEDULE"],PENDING_PAYMENT:["VERIFIED","CANCEL"],PROCESS:["ON_TRIP","CANCEL","RESCHEDULE"],ON_TRIP:["TRIP_COMPLETED","CANCEL"],TRIP_COMPLETED:["SUCCESS"],RESCHEDULE:["VERIFIED","PROCESS","CANCEL"],SUCCESS:[],CANCEL:[]};const choices=me.role==="ADMIN"?(adminTransitions[o.status]||[]):o.status==="PROCESS"?["ON_TRIP"]:o.status==="ON_TRIP"?["TRIP_COMPLETED"]:[];
-    if(choices.length){
-     const statusLine=document.createElement("div");statusLine.className="assignline";
-     const statusSelect=document.createElement("select");statusSelect.setAttribute("aria-label","Ubah status "+o.order_code);
-     choices.forEach(v=>{const op=document.createElement("option");op.value=v;op.textContent=v.replaceAll("_"," ");statusSelect.append(op)});
-     const statusButton=document.createElement("button");statusButton.type="button";statusButton.className="secondary";statusButton.textContent="Perbarui status";
-     statusButton.onclick=async()=>{statusButton.disabled=true;try{await api("/api/orders/"+encodeURIComponent(o.id)+"/status",{method:"PATCH",body:JSON.stringify({status:statusSelect.value})});await loadOrders()}catch(e){alert(e.message);statusButton.disabled=false}};
-     statusLine.append(statusSelect,statusButton);el.append(statusLine)
+   if(me.role==="ADMIN"){
+    if(o.status==="VERIFIED"){
+     const line=document.createElement("div");line.className="assignline";
+     const sel=document.createElement("select");sel.setAttribute("aria-label","Pilih kurir "+o.order_code);
+     const empty=document.createElement("option");empty.value="";empty.textContent="Pilih kurir aktif";sel.append(empty);
+     couriers.forEach(c=>{const op=document.createElement("option");op.value=c.id;op.textContent=c.name;if(c.id===o.courier_id)op.selected=true;sel.append(op)});
+     const btn=document.createElement("button");btn.type="button";btn.className="secondary";btn.textContent="Tugaskan & mulai trip";
+     btn.onclick=async()=>{if(!sel.value){alert("Pilih kurir terlebih dahulu.");return}btn.disabled=true;try{await api("/api/orders/"+encodeURIComponent(o.id)+"/assign",{method:"PATCH",body:JSON.stringify({courierId:sel.value})});await loadOrders()}catch(e){alert(e.message);btn.disabled=false}};
+     line.append(sel,btn);el.append(line);
+    }
+    if(["NEW_ORDER","VERIFIED","RESCHEDULE"].includes(o.status)){
+     const line=document.createElement("div");line.className="assignline";
+     const date=document.createElement("input");date.type="datetime-local";date.value=(o.pickup_datetime||"").slice(0,16);date.setAttribute("aria-label","Jadwal baru "+o.order_code);
+     const res=document.createElement("button");res.type="button";res.className="secondary";res.textContent="Reschedule";
+     res.onclick=async()=>{if(!date.value){alert("Pilih tanggal dan jam baru.");return}res.disabled=true;try{await api("/api/orders/"+encodeURIComponent(o.id)+"/reschedule",{method:"PATCH",body:JSON.stringify({pickup_datetime:date.value})});await loadOrders()}catch(e){alert(e.message);res.disabled=false}};
+     line.append(date,res);el.append(line);
+    }
+    if(!["SUCCESS","CANCEL"].includes(o.status)){
+     const line=document.createElement("div");line.className="assignline";
+     const distance=document.createElement("input");distance.type="number";distance.min="0.1";distance.step="0.1";distance.value=Number(o.distance_km||0);distance.setAttribute("aria-label","Koreksi jarak km "+o.order_code);
+     const save=document.createElement("button");save.type="button";save.className="secondary";save.textContent="Simpan koreksi jarak";
+     save.onclick=async()=>{save.disabled=true;try{await api("/api/orders/"+encodeURIComponent(o.id)+"/distance",{method:"PATCH",body:JSON.stringify({distance_km:Number(distance.value)})});await loadOrders()}catch(e){alert(e.message);save.disabled=false}};
+     line.append(distance,save);el.append(line);
+    }
+    if(["TRIP_COMPLETED","PENDING_PAYMENT"].includes(o.status)){
+     const line=document.createElement("div");line.className="assignline";
+     const sel=document.createElement("select");[["VERIFIED","Pembayaran Verified"],["PENDING","Pembayaran Pending"]].forEach(([v,t])=>{const op=document.createElement("option");op.value=v;op.textContent=t;sel.append(op)});
+     const btn=document.createElement("button");btn.type="button";btn.className="secondary";btn.textContent="Simpan status pembayaran";
+     btn.onclick=async()=>{btn.disabled=true;try{await api("/api/orders/"+encodeURIComponent(o.id)+"/payment-status",{method:"PATCH",body:JSON.stringify({status:sel.value})});await loadOrders()}catch(e){alert(e.message);btn.disabled=false}};
+     line.append(sel,btn);el.append(line);
+    }
+    const allowed={NEW_ORDER:["VERIFIED","CANCEL"],VERIFIED:["CANCEL"],RESCHEDULE:["VERIFIED","CANCEL"]}[o.status]||[];
+    if(allowed.length){
+     const line=document.createElement("div");line.className="assignline";const sel=document.createElement("select");
+     allowed.forEach(v=>{const op=document.createElement("option");op.value=v;op.textContent=v==="VERIFIED"?"Verified":v==="CANCEL"?"Cancel":v;sel.append(op)});
+     const btn=document.createElement("button");btn.type="button";btn.className="secondary";btn.textContent="Perbarui status";
+     btn.onclick=async()=>{btn.disabled=true;try{await api("/api/orders/"+encodeURIComponent(o.id)+"/status",{method:"PATCH",body:JSON.stringify({status:sel.value})});await loadOrders()}catch(e){alert(e.message);btn.disabled=false}};
+     line.append(sel,btn);el.append(line);
     }
    }
    root.append(el)
