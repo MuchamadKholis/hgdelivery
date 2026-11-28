@@ -291,6 +291,18 @@ if(p==="/api/admin/users"&&r.method==="POST"){
  await env.DB.prepare("INSERT INTO audit_logs(id,actor_id,action,entity_type,entity_id,detail) VALUES(?,?,'USER_CREATED','USER',?,?)").bind(uid(),user.id,id,b.role).run();
  return json({ok:true,user:{id,name:b.name.trim(),email,role:b.role,active:1}},201);
 }
+if(p==="/api/auth/password"&&r.method==="POST"){
+ const b=await body(r),target=await env.DB.prepare("SELECT password_hash FROM users WHERE id=? AND active=1").bind(user.id).first();
+ if(!target)return json({error:"Akun tidak ditemukan atau tidak aktif"},404);
+ if(typeof b?.current_password!=="string"||typeof b?.new_password!=="string"||b.new_password.length<12||b.new_password.length>1024)return json({error:"Password baru minimal 12 karakter"},400);
+ if(!(await validPass(b.current_password,target.password_hash)))return json({error:"Password saat ini salah"},401);
+ if(b.current_password===b.new_password)return json({error:"Password baru harus berbeda"},400);
+ const token=(r.headers.get("cookie")||"").split(";").map(x=>x.trim()).find(x=>x.startsWith("hg_session="))?.slice(11)||"";
+ await env.DB.prepare("UPDATE users SET password_hash=? WHERE id=?").bind(await hashPass(b.new_password),user.id).run();
+ await env.DB.prepare("DELETE FROM sessions WHERE user_id=? AND token_hash<>?").bind(user.id,await sha(token)).run();
+ await env.DB.prepare("INSERT INTO audit_logs(id,actor_id,action,entity_type,entity_id,detail) VALUES(?,?,'SELF_PASSWORD_CHANGED','USER',?,'Password diubah oleh pemilik akun')").bind(uid(),user.id,user.id).run();
+ return json({ok:true,message:"Password berhasil diubah. Sesi perangkat lain telah dikeluarkan."});
+}
 const passwordMatch=p.match(/^\/api\/admin\/users\/([\w-]+)\/password$/);
 if(passwordMatch&&r.method==="POST"){
  if(user.role!=="ADMIN")return json({error:"Hanya admin"},403);
