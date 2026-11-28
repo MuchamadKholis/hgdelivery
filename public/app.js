@@ -50,6 +50,8 @@ function updateFare(){
  $("#fareSplitRow").hidden=me?.role!=="ADMIN";
  $("#rideFields").hidden=type!=="RIDE";
  $("#sendFields").hidden=type!=="SEND";
+ $("#rideFields").querySelectorAll("input,select").forEach(x=>x.disabled=type!=="RIDE");
+ $("#sendFields").querySelectorAll("input,select").forEach(x=>x.disabled=type!=="SEND");
  $("#vehicleGroup").hidden=type!=="RIDE";
 }
 $("#estimateRoute").onclick=async()=>{const button=$("#estimateRoute"),box=$("#routeEstimate"),v=Object.fromEntries(new FormData($("#orderForm")));["pickup_lat","pickup_lng","destination_lat","destination_lng"].forEach(k=>v[k]=Number(v[k]));if(![v.pickup_lat,v.pickup_lng,v.destination_lat,v.destination_lng].every(Number.isFinite)){box.textContent="Pilih lokasi jemput dan tujuan terlebih dahulu.";return}button.disabled=true;box.textContent="Menghitung rute…";try{const d=await api("/api/route/estimate",{method:"POST",body:JSON.stringify(v)});routeKm=Number(d.distance_km)||0;routeQuoteId=d.quote_id||"";box.textContent="Jarak jalan ± "+routeKm.toLocaleString("id-ID")+" km · Waktu ± "+d.duration_minutes.toLocaleString("id-ID")+" menit · "+d.provider+". "+d.note+" "+d.attribution;updateFare();if(routeLine){maps.map.removeLayer(routeLine)}routeLine=L.geoJSON(d.geometry,{style:{color:"#16a34a",weight:5,opacity:.85}});routeLine.addTo(maps.map);maps.map.fitBounds(routeLine.getBounds(),{padding:[24,24]})}catch(x){routeKm=0;routeQuoteId="";updateFare();box.textContent=x.message}finally{button.disabled=false}};
