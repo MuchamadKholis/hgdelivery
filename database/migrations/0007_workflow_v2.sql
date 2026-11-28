@@ -18,3 +18,4 @@ CREATE TABLE route_quotes (
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX idx_route_quotes_user_expiry ON route_quotes(user_id, expires_at);
+ALTER TABLE orders ADD COLUMN minimum_price INTEGER NOT NULL DEFAULT 0 CHECK(minimum_price >= 0);
