@@ -315,3 +315,7 @@ input:focus,select:focus,textarea:focus{border-color:#8baa5c;box-shadow:0 0 0 4p
 .csv-upload-label{display:inline-flex;align-items:center;justify-content:center;padding:9px 13px;border-radius:9px;background:#eaf2e4;color:#36562d;font-size:13px;font-weight:750;cursor:pointer}
 .preset-csv-help{font-size:12px;margin:8px 0 14px}
 @media(max-width:650px){.location-toolbar{grid-template-columns:minmax(0,1fr) auto}.location-block .searchline{grid-template-columns:minmax(0,1fr) auto}.gps-button{padding:9px 12px}}
+
+/* Mobile address search stays in one horizontal row */
+@media(max-width:760px){.location-block .searchline{display:grid!important;grid-template-columns:minmax(0,1fr) auto!important;align-items:end;gap:8px}.location-block .searchline input{grid-column:auto!important;width:100%;min-width:0}.location-block .searchline button{margin:0!important;min-width:68px;white-space:nowrap}}
+.wa-recipient-dialog{width:min(92vw,420px);border:1px solid #dfe8e0;border-radius:16px;padding:22px;box-shadow:0 20px 70px #102b2440}.wa-recipient-dialog::backdrop{background:#102b2480}.wa-recipient-dialog h3{margin:0 0 8px;color:#173c2e}.wa-recipient-dialog>select,.wa-recipient-dialog>input{margin:10px 0 0}.wa-recipient-dialog>input[hidden]{display:none}.wa-dialog-actions{display:grid;grid-template-columns:1fr 1.5fr;gap:8px;margin-top:18px}.wa-dialog-actions button{margin:0;min-height:42px}.wa-dialog-actions .primary{width:auto;padding:10px 12px}
