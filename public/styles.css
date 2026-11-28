@@ -273,3 +273,4 @@ input:focus,select:focus,textarea:focus{border-color:#8baa5c;box-shadow:0 0 0 4p
  .action-panel .assignline button{width:100%}
  .export-tools{margin:8px 0}
 }
+.admin-order-views,.pagination{display:flex;gap:8px;align-items:center;justify-content:flex-end;flex-wrap:wrap;margin:12px 0}.admin-order-views .active{background:#24563f;color:white}.pagination span{font-size:12px;color:#718078}.role-history{margin-top:26px;border-top:1px solid var(--hg-line);padding-top:20px}.history-row{padding:12px 0;border-bottom:1px solid var(--hg-line)}.history-row p{margin:5px 0 0;color:var(--hg-muted);font-size:12px}.app-nav .tab{white-space:nowrap}
