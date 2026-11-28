@@ -2,12 +2,14 @@ const $=s=>document.querySelector(s);let me=null;let publicPricing={};const maps
 async function api(path,opt={}){const r=await fetch(path,{...opt,credentials:"same-origin",headers:{"content-type":"application/json",...(opt.headers||{})}});const d=await r.json().catch(()=>({}));if(!r.ok){const e=Error(d.error||"Permintaan gagal");e.diagnostic=d.diagnostic;throw e}return d}
 function start(user){me=user;$("#login").hidden=true;$("#app").hidden=false;$("#welcomeName").textContent=user.name;$("#userbar").textContent=user.role;document.querySelectorAll(".admin-only").forEach(x=>x.hidden=user.role!=="ADMIN");$("#customerNameInput").value=user.name||"";$("#customerPhoneInput").value=user.phone||"";$("#customerEmailInput").value=user.email||"";if(user.role==="COURIER"){document.querySelector('[data-tab="new"]').hidden=true;$("#new").hidden=true;}setDefaultOrderDates();const dt=new Date(Date.now()+15*60000);dt.setMinutes(dt.getMinutes()-dt.getTimezoneOffset());$("#pickupDateTimeInput").value=dt.toISOString().slice(0,16);updateFare();initMaps();loadOrders();loadPublicPricing();loadRoleDashboard();if(user.role==="ADMIN"){loadDashboard();loadPricing()}}
 async function loadRoleDashboard(){
- const root=$("#roleDashboard");if(!root||me?.role==="ADMIN"){if(root)root.hidden=true;return}
- root.hidden=false;
+ const root=$("#roleDashboard"),history=$("#roleHistory");if(!root||me?.role==="ADMIN"){if(root)root.hidden=true;if(history)history.hidden=true;return}
+ root.hidden=false;history.hidden=false;
  try{
-  const d=await api("/api/orders"),orders=d.orders||[],active=orders.filter(o=>!["SUCCESS","CANCEL"].includes(o.status)).length,done=orders.filter(o=>o.status==="SUCCESS").length;
-  const items=[["Total Orders",orders.length],["In Progress",active],["Completed",done]];
+  const d=await api("/api/orders"),orders=d.orders||[],active=orders.filter(o=>!["SUCCESS","CANCEL"].includes(o.status)),done=orders.filter(o=>["SUCCESS","CANCEL"].includes(o.status));
+  const items=[["Total Order",orders.length],["Active Order",active.length],["History",done.length]];
   root.replaceChildren();items.forEach(([label,value])=>{const card=document.createElement("article");card.className="metric";const small=document.createElement("small");small.textContent=label;const strong=document.createElement("strong");strong.textContent=Number(value).toLocaleString("id-ID");card.append(small,strong);root.append(card)});
+  history.replaceChildren();const heading=document.createElement("h2");heading.textContent="History";history.append(heading);let page=1;const size=5;
+  const render=()=>{history.querySelectorAll(".history-row,.pagination").forEach(x=>x.remove());const rows=done.slice((page-1)*size,page*size);if(!rows.length){const empty=document.createElement("p");empty.className="muted";empty.textContent="Belum ada riwayat order.";history.append(empty);return}rows.forEach(o=>{const row=document.createElement("article");row.className="history-row";const b=document.createElement("b");b.textContent=o.order_code+" · "+o.status;const p=document.createElement("p");p.textContent=(o.pickup_label||"")+" → "+(o.destination_label||"");row.append(b,p);history.append(row)});const pager=document.createElement("div");pager.className="pagination";const prev=document.createElement("button");prev.className="secondary";prev.textContent="Sebelumnya";prev.disabled=page===1;prev.onclick=()=>{page--;render()};const next=document.createElement("button");next.className="secondary";next.textContent="Berikutnya";next.disabled=page*size>=done.length;next.onclick=()=>{page++;render()};pager.append(prev,next);history.append(pager)};render();
  }catch(e){root.textContent="Ringkasan akun belum dapat dimuat."}
 }
 async function exportOrders(){
