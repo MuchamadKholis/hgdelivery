@@ -239,11 +239,11 @@ if(orderDistanceMatch&&r.method==="PATCH"){
  if(user.role!=="ADMIN")return json({error:"Hanya admin"},403);
  const b=await body(r),distance=Number(b?.distance_km);
  if(!Number.isFinite(distance)||distance<=0||distance>1000)return json({error:"Jarak harus lebih dari 0 dan maksimal 1.000 km."},400);
- const old=await env.DB.prepare("SELECT status,customer_rate_per_km,courier_rate_per_km FROM orders WHERE id=?").bind(orderDistanceMatch[1]).first();
+ const old=await env.DB.prepare("SELECT status,customer_rate_per_km,courier_rate_per_km,total_payment,distance_km,courier_share,price,minimum_price FROM orders WHERE id=?").bind(orderDistanceMatch[1]).first();
  if(!old)return json({error:"Order tidak ditemukan"},404);
  if(old.status==="SUCCESS"||old.status==="CANCEL")return json({error:"Order final tidak dapat diubah."},409);
  const customerRate=Number(old.customer_rate_per_km||0)||Math.round(Number(old.total_payment||old.price||0)/Math.max(Number(old.distance_km||0),0.1)),courierRate=Number(old.courier_rate_per_km||0)||Math.round(Number(old.courier_share||0)/Math.max(Number(old.distance_km||0),0.1));
- const total=Math.max(0,Math.round(distance*customerRate)),courier=Math.min(total,Math.round(distance*courierRate)),company=total-courier;
+ const total=Math.max(Number(old.minimum_price||0),Math.round(distance*customerRate)),courier=Math.min(total,Math.round(distance*courierRate)),company=total-courier;
  await env.DB.batch([
   env.DB.prepare("UPDATE orders SET distance_km=?,total_payment=?,price=?,courier_share=?,company_share=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(distance,total,total,courier,company,orderDistanceMatch[1]),
   env.DB.prepare("INSERT INTO audit_logs(id,actor_id,action,entity_type,entity_id,detail) VALUES(?,?,'ORDER_DISTANCE_CORRECTED','ORDER',?,?)").bind(uid(),user.id,orderDistanceMatch[1],"Jarak menjadi "+distance+" km; total "+total)
@@ -423,7 +423,7 @@ if(p==="/api/orders"&&r.method==="POST"){
  }
  if(!inserted)return json({error:"Gagal membuat nomor order. Silakan coba kembali."},409);
  await env.DB.batch([
-  env.DB.prepare("UPDATE orders SET courier_rate_per_km=?,customer_rate_per_km=?,created_by_id=? WHERE id=?").bind(courierRate,rate,user.id,oid),
+  env.DB.prepare("UPDATE orders SET courier_rate_per_km=?,customer_rate_per_km=?,minimum_price=?,created_by_id=? WHERE id=?").bind(courierRate,rate,minimum,user.id,oid),
   env.DB.prepare("INSERT INTO order_events(id,order_id,actor_id,to_status,note) VALUES(?,?,?,'NEW_ORDER','Order dibuat')").bind(uid(),oid,user.id),
   env.DB.prepare("INSERT INTO audit_logs(id,actor_id,action,entity_type,entity_id,detail) VALUES(?,?,'ORDER_CREATED','ORDER',?,?)").bind(uid(),user.id,oid,"Order "+code+" dibuat oleh "+user.role)
  ]);
