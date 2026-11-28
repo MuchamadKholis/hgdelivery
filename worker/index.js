@@ -278,13 +278,47 @@ if(p==="/api/admin/users"&&r.method==="GET"){
 if(p==="/api/admin/users"&&r.method==="POST"){
  if(user.role!=="ADMIN")return json({error:"Hanya admin"},403);
  const b=await body(r);
- if(typeof b?.name!=="string"||typeof b?.email!=="string"||typeof b?.password!=="string"||!["CUSTOMER","COURIER"].includes(b.role)||b.name.trim().length<2||b.name.length>100||!validEmail(b.email.trim())||b.password.length<12||b.password.length>1024)return json({error:"Nama, email, role, atau password tidak valid. Password minimal 12 karakter."},400);
+ if(typeof b?.name!=="string"||typeof b?.email!=="string"||typeof b?.password!=="string"||!["ADMIN","CUSTOMER","COURIER"].includes(b.role)||b.name.trim().length<2||b.name.length>100||!validEmail(b.email.trim())||b.password.length<12||b.password.length>1024)return json({error:"Nama, email, role, atau password tidak valid. Password minimal 12 karakter."},400);
  const id=uid(),email=b.email.trim().toLowerCase();
  try{
   await env.DB.prepare("INSERT INTO users(id,name,email,phone,password_hash,role) VALUES(?,?,?,?,?,?)").bind(id,b.name.trim(),email,typeof b.phone==="string"?b.phone.trim().slice(0,30):null,await hashPass(b.password),b.role).run();
  }catch{return json({error:"Email sudah digunakan atau data tidak valid"},409)}
  await env.DB.prepare("INSERT INTO audit_logs(id,actor_id,action,entity_type,entity_id,detail) VALUES(?,?,'USER_CREATED','USER',?,?)").bind(uid(),user.id,id,b.role).run();
  return json({ok:true,user:{id,name:b.name.trim(),email,role:b.role,active:1}},201);
+}
+const passwordMatch=p.match(/^\/api\/admin\/users\/([\w-]+)\/password$/);
+if(passwordMatch&&r.method==="POST"){
+ if(user.role!=="ADMIN")return json({error:"Hanya admin"},403);
+ const b=await body(r),target=await env.DB.prepare("SELECT id,role FROM users WHERE id=?").bind(passwordMatch[1]).first();
+ if(!target)return json({error:"Pengguna tidak ditemukan"},404);
+ if(typeof b?.password!=="string"||b.password.length<12||b.password.length>1024)return json({error:"Password baru minimal 12 karakter"},400);
+ const currentToken=(r.headers.get("cookie")||"").split(";").map(x=>x.trim()).find(x=>x.startsWith("hg_session="))?.slice(11);
+ const currentHash=currentToken?await sha(currentToken):"";
+ await env.DB.prepare("UPDATE users SET password_hash=? WHERE id=?").bind(await hashPass(b.password),target.id).run();
+ await env.DB.prepare("DELETE FROM sessions WHERE user_id=? AND token_hash<>?").bind(target.id,currentHash).run();
+ await env.DB.prepare("INSERT INTO audit_logs(id,actor_id,action,entity_type,entity_id,detail) VALUES(?,?,'USER_PASSWORD_RESET','USER',?,'Password direset oleh admin')").bind(uid(),user.id,target.id).run();
+ return json({ok:true,message:"Password berhasil direset. Sesi perangkat lain telah dikeluarkan."});
+}
+const deleteUserMatch=p.match(/^\/api\/admin\/users\/([\w-]+)$/);
+if(deleteUserMatch&&r.method==="DELETE"){
+ if(user.role!=="ADMIN")return json({error:"Hanya admin"},403);
+ const target=await env.DB.prepare("SELECT id,role,active FROM users WHERE id=?").bind(deleteUserMatch[1]).first();
+ if(!target)return json({error:"Pengguna tidak ditemukan"},404);
+ if(target.id===user.id)return json({error:"Akun yang sedang digunakan tidak dapat dihapus"},400);
+ if(target.role==="ADMIN"){
+  const n=await env.DB.prepare("SELECT COUNT(*) n FROM users WHERE role='ADMIN' AND active=1").first();
+  if(target.active&&n.n<=1)return json({error:"Admin aktif terakhir tidak dapat dihapus"},400);
+ }
+ const linked=await env.DB.prepare("SELECT (SELECT COUNT(*) FROM orders WHERE customer_id=? OR courier_id=?) n").bind(target.id,target.id).first();
+ if(linked.n>0)return json({error:"Akun memiliki riwayat order. Nonaktifkan akun agar riwayat tetap aman."},409);
+ await env.DB.batch([
+  env.DB.prepare("UPDATE audit_logs SET actor_id=NULL WHERE actor_id=?").bind(target.id),
+  env.DB.prepare("UPDATE order_events SET actor_id=NULL WHERE actor_id=?").bind(target.id),
+  env.DB.prepare("DELETE FROM sessions WHERE user_id=?").bind(target.id),
+  env.DB.prepare("DELETE FROM users WHERE id=?").bind(target.id)
+ ]);
+ await env.DB.prepare("INSERT INTO audit_logs(id,actor_id,action,entity_type,entity_id,detail) VALUES(?,?,'USER_DELETED','USER',?,'Akun dihapus oleh admin')").bind(uid(),user.id,target.id).run();
+ return json({ok:true});
 }
 const activeMatch=p.match(/^\/api\/admin\/users\/([\w-]+)\/active$/);
 if(activeMatch&&r.method==="PATCH"){
