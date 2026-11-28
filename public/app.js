@@ -80,20 +80,20 @@ async function loadOrders(){
    const people=document.createElement("p");people.textContent=(o.customer_name||"Pemesan")+" ("+(o.customer_phone||"-")+")"+(o.recipient_name?" · Penerima: "+o.recipient_name+" ("+(o.recipient_phone||"-")+")":"");const p=document.createElement("p");p.textContent="Dari: "+o.pickup_label+" → Ke: "+o.destination_label;const details=document.createElement("p");details.textContent="Jarak: "+Number(o.distance_km||0).toFixed(1)+" km · Total bayar: "+rupiah(o.total_payment||o.price||0)+" ("+(o.payment_method||"Individual")+")"+(me.role==="ADMIN"?" · Argo kurir: "+rupiah(o.courier_share||0)+" · Perusahaan: "+rupiah(o.company_share||0):"");const courier=document.createElement("p");courier.textContent="Kurir: "+(o.courier_name||"Belum ditugaskan")+" · Bukti foto tersedia di bagian bawah order";const t=document.createElement("small");t.textContent="Jadwal: "+(o.pickup_datetime||"-")+" · Dibuat: "+new Date(o.created_at+"Z").toLocaleString("id-ID");el.append(h,people,p,details,courier,t);
    const waLines=o.type==="RIDE"?["*HGRIDE — DETAIL ORDER*","Order No: *"+o.order_code+"*","Customer: "+(o.customer_name||"")+" ("+(o.customer_phone||"-")+")","Jadwal: "+(o.pickup_datetime||"-"),"Kendaraan: "+(o.vehicle||"Motor")+" ("+(o.passenger_count||1)+" org)","Jemput: "+o.pickup_label,"Tujuan: "+o.destination_label,"Jarak: "+o.distance_km+" km","Total Argo: *"+rupiah(o.total_payment||o.price)+"* ("+(o.payment_method||"Individual")+")",o.notes?"Catatan: "+o.notes:""]:["*HGSEND — DETAIL ORDER*","Order No: *"+o.order_code+"*","Pengirim: "+(o.customer_name||"")+" ("+(o.customer_phone||"-")+")","Penerima: "+(o.recipient_name||"-")+" ("+(o.recipient_phone||"-")+")","Barang: "+(o.item_type||o.item_description||"-")+" ("+(o.item_weight_kg||"-")+" kg) · "+(o.delivery_speed||"SAME_DAY"),"Jadwal: "+(o.pickup_datetime||"-"),"Jemput: "+o.pickup_label,"Tujuan: "+o.destination_label,"Jarak: "+o.distance_km+" km","Total Argo: *"+rupiah(o.total_payment||o.price)+"* ("+(o.payment_method||"Individual")+")",o.notes?"Catatan: "+o.notes:""];
    const waText=waLines.filter(Boolean).join("\n"),waActions=document.createElement("div");waActions.className="assignline";
-   const copyWa=document.createElement("button");copyWa.type="button";copyWa.className="secondary";copyWa.textContent="Salin Format WA";copyWa.onclick=async()=>{try{await navigator.clipboard.writeText(waText);copyWa.textContent="Tersalin"}catch{alert("Browser tidak mengizinkan salin otomatis.")}};
-   const sendWa=document.createElement("a");sendWa.className="secondary";sendWa.textContent="Kirim WhatsApp";sendWa.href="https://wa.me/?text="+encodeURIComponent(waText);sendWa.target="_blank";sendWa.rel="noopener";
+   const copyWa=document.createElement("button");copyWa.type="button";copyWa.className="secondary";copyWa.textContent="Copy WhatsApp Text";copyWa.onclick=async()=>{try{await navigator.clipboard.writeText(waText);copyWa.textContent="Copied"}catch{alert("Browser tidak mengizinkan salin otomatis.")}};
+   const sendWa=document.createElement("a");sendWa.className="secondary";sendWa.textContent="Send WhatsApp";sendWa.href="https://wa.me/?text="+encodeURIComponent(waText);sendWa.target="_blank";sendWa.rel="noopener";
    waActions.append(copyWa,sendWa);el.append(waActions);
    if(me.role==="ADMIN"){
     const line=document.createElement("div");line.className="assignline";
     const sel=document.createElement("select");sel.setAttribute("aria-label","Pilih kurir untuk "+o.order_code);
-    const empty=document.createElement("option");empty.value="";empty.textContent="Pilih kurir aktif";sel.append(empty);
+    const empty=document.createElement("option");empty.value="";empty.textContent="Select active courier";sel.append(empty);
     couriers.forEach(c=>{const op=document.createElement("option");op.value=c.id;op.textContent=c.name+" · "+c.email;if(c.id===o.courier_id)op.selected=true;sel.append(op)});
-    const btn=document.createElement("button");btn.type="button";btn.className="secondary";btn.textContent="Tugaskan";
+    const btn=document.createElement("button");btn.type="button";btn.className="secondary";btn.textContent="Assign";
     btn.onclick=async()=>{if(!sel.value){alert("Pilih kurir terlebih dahulu.");return}btn.disabled=true;try{await api("/api/orders/"+encodeURIComponent(o.id)+"/assign",{method:"PATCH",body:JSON.stringify({courierId:sel.value})});btn.textContent="Tersimpan"}catch(e){alert(e.message);btn.disabled=false}};
     line.append(sel,btn);el.append(line)
    }
    const proofBox=document.createElement("div");proofBox.className="proof-box";
-   const proofTitle=document.createElement("b");proofTitle.textContent="Bukti foto";proofBox.append(proofTitle);
+   const proofTitle=document.createElement("b");proofTitle.textContent="Photo Proof";proofBox.append(proofTitle);
    const proofList=document.createElement("div");proofList.className="proof-list";proofList.textContent="Memuat bukti…";proofBox.append(proofList);
    const renderProofs=proofs=>{proofList.replaceChildren();if(!proofs.length){proofList.textContent="Belum ada foto bukti.";return}proofs.forEach(pr=>{const link=document.createElement("a");link.href="/api/proofs/"+encodeURIComponent(pr.id);link.target="_blank";link.rel="noopener";link.textContent=pr.label+" · "+new Date(pr.created_at+"Z").toLocaleString("id-ID")+" · "+Math.ceil(pr.size_bytes/1024)+" KB";proofList.append(link)})};
    fetch("/api/orders/"+encodeURIComponent(o.id)+"/proofs",{credentials:"same-origin"}).then(async res=>{const data=await res.json();if(!res.ok)throw Error(data.error||"Gagal memuat bukti");renderProofs(data.proofs)}).catch(err=>{proofList.textContent=err.message});
@@ -101,7 +101,7 @@ async function loadOrders(){
     const upload=document.createElement("div");upload.className="proof-upload";
     const file=document.createElement("input");file.type="file";file.accept="image/jpeg,image/png,image/webp";file.capture="environment";file.setAttribute("aria-label","Pilih foto bukti");
     const label=document.createElement("input");label.type="text";label.maxLength=80;label.placeholder="Keterangan foto (opsional)";
-    const send=document.createElement("button");send.type="button";send.className="secondary";send.textContent="Unggah bukti";
+    const send=document.createElement("button");send.type="button";send.className="secondary";send.textContent="Upload Proof";
     send.onclick=async()=>{if(!file.files?.[0]){alert("Pilih foto terlebih dahulu.");return}send.disabled=true;const fd=new FormData();fd.append("file",file.files[0]);fd.append("label",label.value||"Bukti");try{const res=await fetch("/api/orders/"+encodeURIComponent(o.id)+"/proofs",{method:"POST",credentials:"same-origin",body:fd});const data=await res.json().catch(()=>({}));if(!res.ok)throw Error(data.error||"Upload gagal");file.value="";label.value="";send.textContent="Terkirim";const refresh=await fetch("/api/orders/"+encodeURIComponent(o.id)+"/proofs",{credentials:"same-origin"});const list=await refresh.json();renderProofs(list.proofs);await loadOrders()}catch(err){alert(err.message);send.disabled=false}};
     upload.append(file,label,send);proofBox.append(upload);
    }
@@ -110,9 +110,9 @@ async function loadOrders(){
     if(o.status==="VERIFIED"){
      const line=document.createElement("div");line.className="assignline";
      const sel=document.createElement("select");sel.setAttribute("aria-label","Pilih kurir "+o.order_code);
-     const empty=document.createElement("option");empty.value="";empty.textContent="Pilih kurir aktif";sel.append(empty);
+     const empty=document.createElement("option");empty.value="";empty.textContent="Select active courier";sel.append(empty);
      couriers.forEach(c=>{const op=document.createElement("option");op.value=c.id;op.textContent=c.name;if(c.id===o.courier_id)op.selected=true;sel.append(op)});
-     const btn=document.createElement("button");btn.type="button";btn.className="secondary";btn.textContent="Tugaskan & mulai trip";
+     const btn=document.createElement("button");btn.type="button";btn.className="secondary";btn.textContent="Assign & Start Trip";
      btn.onclick=async()=>{if(!sel.value){alert("Pilih kurir terlebih dahulu.");return}btn.disabled=true;try{await api("/api/orders/"+encodeURIComponent(o.id)+"/assign",{method:"PATCH",body:JSON.stringify({courierId:sel.value})});await loadOrders()}catch(e){alert(e.message);btn.disabled=false}};
      line.append(sel,btn);el.append(line);
     }
@@ -126,14 +126,14 @@ async function loadOrders(){
     if(!["SUCCESS","CANCEL"].includes(o.status)){
      const line=document.createElement("div");line.className="assignline";
      const distance=document.createElement("input");distance.type="number";distance.min="0.1";distance.step="0.1";distance.value=Number(o.distance_km||0);distance.setAttribute("aria-label","Koreksi jarak km "+o.order_code);
-     const save=document.createElement("button");save.type="button";save.className="secondary";save.textContent="Simpan koreksi jarak";
+     const save=document.createElement("button");save.type="button";save.className="secondary";save.textContent="Save Distance";
      save.onclick=async()=>{save.disabled=true;try{await api("/api/orders/"+encodeURIComponent(o.id)+"/distance",{method:"PATCH",body:JSON.stringify({distance_km:Number(distance.value)})});await loadOrders()}catch(e){alert(e.message);save.disabled=false}};
      line.append(distance,save);el.append(line);
     }
     if(["TRIP_COMPLETED","PENDING_PAYMENT"].includes(o.status)){
      const line=document.createElement("div");line.className="assignline";
      const sel=document.createElement("select");[["VERIFIED","Pembayaran Verified"],["PENDING","Pembayaran Pending"]].forEach(([v,t])=>{const op=document.createElement("option");op.value=v;op.textContent=t;sel.append(op)});
-     const btn=document.createElement("button");btn.type="button";btn.className="secondary";btn.textContent="Simpan status pembayaran";
+     const btn=document.createElement("button");btn.type="button";btn.className="secondary";btn.textContent="Save Payment Status";
      btn.onclick=async()=>{btn.disabled=true;try{await api("/api/orders/"+encodeURIComponent(o.id)+"/payment-status",{method:"PATCH",body:JSON.stringify({status:sel.value})});await loadOrders()}catch(e){alert(e.message);btn.disabled=false}};
      line.append(sel,btn);el.append(line);
     }
@@ -141,7 +141,7 @@ async function loadOrders(){
     if(allowed.length){
      const line=document.createElement("div");line.className="assignline";const sel=document.createElement("select");
      allowed.forEach(v=>{const op=document.createElement("option");op.value=v;op.textContent=v==="VERIFIED"?"Verified":v==="CANCEL"?"Cancel":v;sel.append(op)});
-     const btn=document.createElement("button");btn.type="button";btn.className="secondary";btn.textContent="Perbarui status";
+     const btn=document.createElement("button");btn.type="button";btn.className="secondary";btn.textContent="Update Status";
      btn.onclick=async()=>{btn.disabled=true;try{await api("/api/orders/"+encodeURIComponent(o.id)+"/status",{method:"PATCH",body:JSON.stringify({status:sel.value})});await loadOrders()}catch(e){alert(e.message);btn.disabled=false}};
      line.append(sel,btn);el.append(line);
     }
@@ -163,21 +163,21 @@ async function loadUsers(){
    const nameCell=document.createElement("td");nameCell.textContent=u.name;
    const emailCell=document.createElement("td");emailCell.textContent=u.email||"-";
    const phoneCell=document.createElement("td");phoneCell.textContent=u.phone||"-";
-   const roleCell=document.createElement("td");roleCell.textContent=({ADMIN:"Admin",COURIER:"Kurir",CUSTOMER:"Customer"}[u.role]);
+   const roleCell=document.createElement("td");roleCell.textContent=({ADMIN:"Admin",COURIER:"Courier",CUSTOMER:"Customer"}[u.role]);
    const statusCell=document.createElement("td");const status=document.createElement("span");status.className="pill";status.textContent=u.active?"Aktif":"Nonaktif";statusCell.append(status);
    const actions=document.createElement("div");actions.className="user-actions";
-   const toggle=document.createElement("button");toggle.type="button";toggle.className="secondary";toggle.textContent=u.active?"Nonaktifkan":"Aktifkan";toggle.disabled=u.id===me.id;
+   const toggle=document.createElement("button");toggle.type="button";toggle.className="secondary";toggle.textContent=u.active?"Disable":"Enable";toggle.disabled=u.id===me.id;
    toggle.onclick=async()=>{toggle.disabled=true;try{await api("/api/admin/users/"+encodeURIComponent(u.id)+"/active",{method:"PATCH",body:JSON.stringify({active:!u.active})});await loadUsers()}catch(e){alert(e.message);toggle.disabled=false}};
-   const reset=document.createElement("button");reset.type="button";reset.className="secondary";reset.textContent="Reset password";
+   const reset=document.createElement("button");reset.type="button";reset.className="secondary";reset.textContent="Reset Password";
    reset.onclick=async()=>{const password=prompt("Masukkan password baru (minimal 12 karakter) untuk "+u.name+":");if(password===null)return;if(password.length<12){alert("Password minimal 12 karakter.");return}const again=prompt("Ulangi password baru:");if(again===null)return;if(password!==again){alert("Konfirmasi password tidak sama.");return}reset.disabled=true;try{const result=await api("/api/admin/users/"+encodeURIComponent(u.id)+"/password",{method:"POST",body:JSON.stringify({password})});alert(result.message||"Password berhasil direset.")}catch(e){alert(e.message)}finally{reset.disabled=false}};
-   const remove=document.createElement("button");remove.type="button";remove.className="danger";remove.textContent="Hapus akun";remove.disabled=u.id===me.id;
+   const remove=document.createElement("button");remove.type="button";remove.className="danger";remove.textContent="Delete User";remove.disabled=u.id===me.id;
    remove.onclick=async()=>{if(!confirm("Hapus akun "+u.name+"? Tindakan ini permanen dan hanya bisa dilakukan jika akun belum memiliki riwayat order."))return;remove.disabled=true;try{await api("/api/admin/users/"+encodeURIComponent(u.id),{method:"DELETE"});await loadUsers()}catch(e){alert(e.message);remove.disabled=false}};
    actions.append(toggle,reset,remove);const actionCell=document.createElement("td");actionCell.append(actions);el.append(nameCell,emailCell,phoneCell,roleCell,statusCell,actionCell);root.querySelector("tbody").append(el)
   })
  }catch(e){$("#userList").textContent=e.message}
 }
 document.querySelectorAll(".user-role-tab").forEach(button=>button.onclick=()=>{activeUserRole=button.dataset.role;document.querySelectorAll(".user-role-tab").forEach(x=>x.classList.toggle("active",x===button));$("#userRoleInput").value=activeUserRole;$("#userFormTitle").textContent="Add "+({ADMIN:"Admin",COURIER:"Courier",CUSTOMER:"Customer"}[activeUserRole]);$("#createUserButton").textContent="Create "+({ADMIN:"Admin",COURIER:"Courier",CUSTOMER:"Customer"}[activeUserRole]);loadUsers()});
-$("#userForm").onsubmit=async e=>{e.preventDefault();const msg=$("#userMessage"),v=Object.fromEntries(new FormData(e.target));v.role=activeUserRole;msg.textContent="";try{await api("/api/admin/users",{method:"POST",body:JSON.stringify(v)});e.target.reset();$("#userRoleInput").value=activeUserRole;msg.textContent=({ADMIN:"Admin",COURIER:"Kurir",CUSTOMER:"Customer"}[activeUserRole])+" berhasil dibuat.";await loadUsers()}catch(x){msg.textContent=x.message}};
+$("#userForm").onsubmit=async e=>{e.preventDefault();const msg=$("#userMessage"),v=Object.fromEntries(new FormData(e.target));v.role=activeUserRole;msg.textContent="";try{await api("/api/admin/users",{method:"POST",body:JSON.stringify(v)});e.target.reset();$("#userRoleInput").value=activeUserRole;msg.textContent=({ADMIN:"Admin",COURIER:"Courier",CUSTOMER:"Customer"}[activeUserRole])+" berhasil dibuat.";await loadUsers()}catch(x){msg.textContent=x.message}};
 $("#refreshUsers").onclick=loadUsers;
 $("#addUserButton").onclick=()=>{$("#userForm").hidden=false;$("#userForm").scrollIntoView({behavior:"smooth",block:"start"})};
 $("#cancelUserForm").onclick=()=>{$("#userForm").hidden=true;$("#userForm").reset();$("#userRoleInput").value=activeUserRole;$("#userMessage").textContent=""};
