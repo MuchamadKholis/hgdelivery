@@ -226,7 +226,7 @@ if(orderRescheduleMatch&&r.method==="PATCH"){
  if(typeof b?.pickup_datetime!=="string"||!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(b.pickup_datetime))return json({error:"Pilih tanggal dan jam baru yang valid."},400);
  const old=await env.DB.prepare("SELECT status,pickup_datetime FROM orders WHERE id=?").bind(orderRescheduleMatch[1]).first();
  if(!old)return json({error:"Order tidak ditemukan"},404);
- if(!["NEW_ORDER","RESCHEDULE"].includes(old.status))return json({error:"Order pada tahap ini tidak dapat dijadwalkan ulang."},409);
+ if(!["NEW_ORDER","VERIFIED","RESCHEDULE"].includes(old.status))return json({error:"Order pada tahap ini tidak dapat dijadwalkan ulang."},409);
  await env.DB.batch([
   env.DB.prepare("UPDATE orders SET pickup_datetime=?,status='RESCHEDULE',updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(b.pickup_datetime,orderRescheduleMatch[1]),
   env.DB.prepare("INSERT INTO order_events(id,order_id,actor_id,from_status,to_status,note) VALUES(?,?,?,?,?,'Jadwal penjemputan diperbarui')").bind(uid(),orderRescheduleMatch[1],user.id,old.status,"RESCHEDULE"),
