@@ -149,7 +149,7 @@ if(r.method==="POST"&&p==="/api/route/estimate"){
 }
 const proofUploadParts=p.split("/");
 if(proofUploadParts.length===5&&proofUploadParts[1]==="api"&&proofUploadParts[2]==="orders"&&proofUploadParts[4]==="proofs"&&r.method==="POST"){
- const orderId=proofUploadParts[3],order=await env.DB.prepare("SELECT id,customer_id,courier_id FROM orders WHERE id=?").bind(orderId).first();
+ const orderId=proofUploadParts[3],order=await env.DB.prepare("SELECT id,customer_id,courier_id,status FROM orders WHERE id=?").bind(orderId).first();
  if(!order)return json({error:"Order tidak ditemukan"},404);
  if(user.role!=="COURIER"||order.courier_id!==user.id)return json({error:"Hanya kurir yang ditugaskan pada order ini yang dapat mengunggah bukti pembayaran"},403);
  const form=await r.formData(),file=form.get("file"),label=String(form.get("label")||"Bukti").slice(0,80);
@@ -242,7 +242,8 @@ if(orderDistanceMatch&&r.method==="PATCH"){
  const old=await env.DB.prepare("SELECT status,customer_rate_per_km,courier_rate_per_km FROM orders WHERE id=?").bind(orderDistanceMatch[1]).first();
  if(!old)return json({error:"Order tidak ditemukan"},404);
  if(old.status==="SUCCESS"||old.status==="CANCEL")return json({error:"Order final tidak dapat diubah."},409);
- const total=Math.max(0,Math.round(distance*Number(old.customer_rate_per_km||0))),courier=Math.min(total,Math.round(distance*Number(old.courier_rate_per_km||0))),company=total-courier;
+ const customerRate=Number(old.customer_rate_per_km||0)||Math.round(Number(old.total_payment||old.price||0)/Math.max(Number(old.distance_km||0),0.1)),courierRate=Number(old.courier_rate_per_km||0)||Math.round(Number(old.courier_share||0)/Math.max(Number(old.distance_km||0),0.1));
+ const total=Math.max(0,Math.round(distance*customerRate)),courier=Math.min(total,Math.round(distance*courierRate)),company=total-courier;
  await env.DB.batch([
   env.DB.prepare("UPDATE orders SET distance_km=?,total_payment=?,price=?,courier_share=?,company_share=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(distance,total,total,courier,company,orderDistanceMatch[1]),
   env.DB.prepare("INSERT INTO audit_logs(id,actor_id,action,entity_type,entity_id,detail) VALUES(?,?,'ORDER_DISTANCE_CORRECTED','ORDER',?,?)").bind(uid(),user.id,orderDistanceMatch[1],"Jarak menjadi "+distance+" km; total "+total)
@@ -378,6 +379,8 @@ if(p==="/api/orders"&&r.method==="POST"){
  const name=typeof b.customer_name==="string"&&b.customer_name.trim()?b.customer_name.trim():user.name;
  const phone=typeof b.customer_phone==="string"?b.customer_phone.trim().slice(0,30):(user.phone||"");
  const email=typeof b.customer_email==="string"?b.customer_email.trim().slice(0,254):user.email;
+ const matchedCustomer=user.role==="ADMIN"&&email?await env.DB.prepare("SELECT id FROM users WHERE role='CUSTOMER' AND active=1 AND lower(email)=?").bind(email.toLowerCase()).first():null;
+ const orderCustomerId=matchedCustomer?.id||user.id;
  if(name.length>100||phone.length>30||email.length>254)return json({error:"Data pemesan terlalu panjang."},400);
  const vehicle=b.type==="RIDE"?(["Motor","Mobil"].includes(b.vehicle)?b.vehicle:"Motor"):"Motor";
  const serviceKey=b.type==="RIDE"?(vehicle==="Mobil"?"RIDE_CAR":"RIDE_MOTOR"):"SEND";
@@ -400,7 +403,7 @@ if(p==="/api/orders"&&r.method==="POST"){
   code=prefix+String(sequence).padStart(pad,"0");
   try{
    await env.DB.prepare("INSERT INTO orders(id,order_code,type,customer_id,status,pickup_label,pickup_lat,pickup_lng,destination_label,destination_lat,destination_lng,distance_km,vehicle,notes,branch,customer_name,customer_phone,customer_email,pickup_datetime,passenger_count,item_description,item_type,item_weight_kg,delivery_speed,recipient_name,recipient_phone,payment_method,company_share,courier_share,total_payment,price) VALUES(?,?,?,?,'NEW_ORDER',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)").bind(
-    oid,code,b.type,user.id,b.pickup_label.trim(),b.pickup_lat,b.pickup_lng,b.destination_label.trim(),b.destination_lat,b.destination_lng,distance,vehicle,typeof b.notes==="string"?b.notes.slice(0,1000):null,
+    oid,code,b.type,orderCustomerId,b.pickup_label.trim(),b.pickup_lat,b.pickup_lng,b.destination_label.trim(),b.destination_lat,b.destination_lng,distance,vehicle,typeof b.notes==="string"?b.notes.slice(0,1000):null,
     "Healthy Go",name,phone,email,typeof b.pickup_datetime==="string"?b.pickup_datetime.slice(0,40):null,
     b.type==="RIDE"?Math.max(1,Math.min(4,Number(b.passenger_count)||1)):null,
     b.type==="SEND"&&typeof b.item_type==="string"?b.item_type.trim().slice(0,120):null,
@@ -428,7 +431,7 @@ if(m&&r.method==="PATCH"){
  const old=await env.DB.prepare("SELECT status FROM orders WHERE id=?").bind(m[1]).first();
  if(!old)return json({error:"Order tidak ditemukan"},404);
  if(old.status==="SUCCESS"||old.status==="CANCEL")return json({error:"Order final tidak dapat diubah lagi."},409);
- const transitions={NEW_ORDER:["VERIFIED","RESCHEDULE","CANCEL"],RESCHEDULE:["VERIFIED","CANCEL"]};
+ const transitions={NEW_ORDER:["VERIFIED","RESCHEDULE","CANCEL"],VERIFIED:["RESCHEDULE","CANCEL"],RESCHEDULE:["VERIFIED","CANCEL"]};
  if(!(transitions[old.status]||[]).includes(b?.status))return json({error:"Alur status tidak valid. Order hanya dapat diverifikasi, dijadwalkan ulang, atau dibatalkan pada tahap ini."},409);
  await env.DB.batch([
   env.DB.prepare("UPDATE orders SET status=?,updated_at=CURRENT_TIMESTAMP,cancelled_at=CASE WHEN ?='CANCEL' THEN CURRENT_TIMESTAMP ELSE cancelled_at END WHERE id=?").bind(b.status,b.status,m[1]),
