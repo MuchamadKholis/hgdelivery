@@ -348,7 +348,7 @@ if(assignMatch&&r.method==="PATCH"){
  if(!courier)return json({error:"Pilih akun kurir aktif yang valid"},400);
  const order=await env.DB.prepare("SELECT id,courier_id,status FROM orders WHERE id=?").bind(assignMatch[1]).first();
  if(!order)return json({error:"Order tidak ditemukan"},404);
- if(!["VERIFIED","ON_TRIP"].includes(order.status))return json({error:"Kurir hanya dapat ditugaskan setelah order diverifikasi dan sebelum trip selesai."},409);
+ if(!["VERIFIED","RESCHEDULE","ON_TRIP"].includes(order.status))return json({error:"Kurir hanya dapat ditugaskan pada order yang sudah diverifikasi dan belum menyelesaikan trip."},409);
  const previous=order.status;
  await env.DB.batch([
   env.DB.prepare("UPDATE orders SET courier_id=?,status='ON_TRIP',assigned_at=CASE WHEN status='VERIFIED' THEN CURRENT_TIMESTAMP ELSE assigned_at END,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status=?").bind(courier.id,order.id,previous),
