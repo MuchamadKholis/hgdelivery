@@ -6,13 +6,13 @@ async function loadRoleDashboard(){
  root.hidden=false;
  try{
   const d=await api("/api/orders"),orders=d.orders||[],active=orders.filter(o=>!["SUCCESS","CANCEL"].includes(o.status)).length,done=orders.filter(o=>o.status==="SUCCESS").length;
-  const items=[["Total riwayat",orders.length],["Sedang diproses",active],["Selesai",done]];
+  const items=[["Total Orders",orders.length],["In Progress",active],["Completed",done]];
   root.replaceChildren();items.forEach(([label,value])=>{const card=document.createElement("article");card.className="metric";const small=document.createElement("small");small.textContent=label;const strong=document.createElement("strong");strong.textContent=Number(value).toLocaleString("id-ID");card.append(small,strong);root.append(card)});
  }catch(e){root.textContent="Ringkasan akun belum dapat dimuat."}
 }
 async function exportOrders(){
  const msg=$("#exportMessage");msg.textContent="Menyiapkan file…";
- const from=$("#filterDateFrom").value,to=$("#filterDateTo").value;
+ const from=$("#exportDateFrom").value,to=$("#exportDateTo").value;
  const params=new URLSearchParams();if(from)params.set("from",from);if(to)params.set("to",to);
  try{
   const res=await fetch("/api/admin/orders/export?"+params.toString(),{credentials:"same-origin"});
@@ -21,7 +21,7 @@ async function exportOrders(){
   a.href=url;a.download="HGDelivery_Orders_"+(from||"semua")+"_"+(to||"semua")+".csv";document.body.append(a);a.click();a.remove();URL.revokeObjectURL(url);msg.textContent="Export berhasil dibuat.";
  }catch(e){msg.textContent=e.message}
 }
-async function loadDashboard(){const root=$("#dashboardMetrics");try{const d=await api("/api/admin/dashboard"),m=d.metrics;root.replaceChildren();const items=[["Total order",m.total_orders],["Perlu diproses",m.waiting_orders],["Dalam proses",m.active_orders],["Selesai",m.completed_orders],["Kurir aktif",m.active_couriers],["Customer aktif",m.active_customers]];items.forEach(([label,value])=>{const card=document.createElement("div");card.className="metric";const name=document.createElement("small");name.textContent=label;const number=document.createElement("strong");number.textContent=Number(value||0).toLocaleString("id-ID");card.append(name,number);root.append(card)})}catch(e){root.textContent="Ringkasan dashboard belum dapat dimuat: "+e.message}}
+async function loadDashboard(){const root=$("#dashboardMetrics");try{const d=await api("/api/admin/dashboard"),m=d.metrics;root.replaceChildren();const items=[["Total Orders",m.total_orders],["Needs Review",m.waiting_orders],["In Progress",m.active_orders],["Completed",m.completed_orders],["Active Couriers",m.active_couriers],["Active Customers",m.active_customers]];items.forEach(([label,value])=>{const card=document.createElement("div");card.className="metric";const name=document.createElement("small");name.textContent=label;const number=document.createElement("strong");number.textContent=Number(value||0).toLocaleString("id-ID");card.append(name,number);root.append(card)})}catch(e){root.textContent="Ringkasan dashboard belum dapat dimuat: "+e.message}}
 let activePin="pickup";
 function initMaps(){if(maps.map){maps.map.invalidateSize();return}const map=L.map("map").setView(defaults.pickup,12);L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap"}).addTo(map);maps.map=map;maps.markers={};for(const key of ["pickup","destination"]){const marker=L.marker(defaults[key],{draggable:true}).addTo(map);maps.markers[key]=marker;marker.on("dragend",()=>{const p=marker.getLatLng();setPoint(key,p.lat,p.lng,true)});setPoint(key,defaults[key][0],defaults[key][1],true)}map.on("click",e=>setPoint(activePin,e.latlng.lat,e.latlng.lng,true));document.querySelectorAll("[data-pin-target]").forEach(b=>b.onclick=()=>{activePin=b.dataset.pinTarget;document.querySelectorAll("[data-pin-target]").forEach(x=>x.classList.toggle("active",x===b))})}
 async function reverse(lat,lng){try{const d=await api("/api/geocode/reverse?lat="+encodeURIComponent(lat)+"&lon="+encodeURIComponent(lng));return d.display_name||lat.toFixed(6)+", "+lng.toFixed(6)}catch{return lat.toFixed(6)+", "+lng.toFixed(6)}}
@@ -61,7 +61,7 @@ $("#orderForm").onsubmit=async e=>{e.preventDefault();const v=Object.fromEntries
 async function loadSummary(){
  try{
   const d=await api("/api/admin/summary"),root=$("#dashboardSummary");root.replaceChildren();
-  const items=[["Pengguna aktif",d.users],["Kurir aktif",d.active_couriers],["Total order",d.orders],["Order berjalan",d.active_orders],["Selesai",d.completed],["Dibatalkan",d.cancelled]];
+  const items=[["Active Users",d.users],["Active Couriers",d.active_couriers],["Total Orders",d.orders],["Ongoing Orders",d.active_orders],["Completed",d.completed],["Cancelled",d.cancelled]];
   items.forEach(([label,value])=>{const el=document.createElement("article");el.className="metric";const title=document.createElement("small");title.textContent=label;const number=document.createElement("strong");number.textContent=Number(value).toLocaleString("id-ID");el.append(title,number);root.append(el)});
  }catch(e){$("#dashboardSummary").textContent=e.message}
 }
@@ -146,7 +146,8 @@ async function loadOrders(){
      line.append(sel,btn);el.append(line);
     }
    }
-   root.append(el)
+   const summary=document.createElement("div");summary.className="order-quick-info";summary.textContent="Customer: "+(o.customer_name||"-")+"  ·  Courier: "+(o.courier_name||"Belum ditugaskan");
+   const disclosure=document.createElement("details");disclosure.className="order-disclosure";const summaryLabel=document.createElement("summary");summaryLabel.textContent="View Details & Actions";const body=document.createElement("div");body.className="order-detail-body";while(el.childNodes.length>1){body.append(el.childNodes[1])}disclosure.append(summaryLabel,body);el.append(summary,disclosure);root.append(el)
   })
  }catch(e){$("#orderList").textContent=e.message}
 }
@@ -154,14 +155,16 @@ let activeUserRole="ADMIN";
 async function loadUsers(){
  try{
   const d=await api("/api/admin/users"),root=$("#userList");root.replaceChildren();
+  const table=document.createElement("div");table.className="table-wrap";table.innerHTML="<table class=\"users-table\"><thead><tr><th>Nama</th><th>Email</th><th>Telepon</th><th>Role</th><th>Status</th><th>Actions</th></tr></thead><tbody></tbody></table>";root.append(table);
   const users=(d.users||[]).filter(u=>u.role===activeUserRole);
   if(!users.length){root.innerHTML='<div class="empty">Belum ada akun '+({ADMIN:"admin",COURIER:"kurir",CUSTOMER:"customer"}[activeUserRole])+".</div>";return}
   users.forEach(u=>{
-   const el=document.createElement("article");el.className="order user-card";
-   const head=document.createElement("div");head.className="orderhead";
-   const title=document.createElement("b");title.textContent=u.name;
-   const status=document.createElement("span");status.className="pill";status.textContent=u.active?"Aktif":"Nonaktif";head.append(title,status);
-   const info=document.createElement("p");info.textContent=({ADMIN:"ADMIN",COURIER:"KURIR",CUSTOMER:"CUSTOMER"}[u.role])+" · "+u.email+(u.phone?" · "+u.phone:"");
+   const el=document.createElement("tr");el.className="user-row";
+   const nameCell=document.createElement("td");nameCell.textContent=u.name;
+   const emailCell=document.createElement("td");emailCell.textContent=u.email||"-";
+   const phoneCell=document.createElement("td");phoneCell.textContent=u.phone||"-";
+   const roleCell=document.createElement("td");roleCell.textContent=({ADMIN:"Admin",COURIER:"Kurir",CUSTOMER:"Customer"}[u.role]);
+   const statusCell=document.createElement("td");const status=document.createElement("span");status.className="pill";status.textContent=u.active?"Aktif":"Nonaktif";statusCell.append(status);
    const actions=document.createElement("div");actions.className="user-actions";
    const toggle=document.createElement("button");toggle.type="button";toggle.className="secondary";toggle.textContent=u.active?"Nonaktifkan":"Aktifkan";toggle.disabled=u.id===me.id;
    toggle.onclick=async()=>{toggle.disabled=true;try{await api("/api/admin/users/"+encodeURIComponent(u.id)+"/active",{method:"PATCH",body:JSON.stringify({active:!u.active})});await loadUsers()}catch(e){alert(e.message);toggle.disabled=false}};
@@ -169,13 +172,16 @@ async function loadUsers(){
    reset.onclick=async()=>{const password=prompt("Masukkan password baru (minimal 12 karakter) untuk "+u.name+":");if(password===null)return;if(password.length<12){alert("Password minimal 12 karakter.");return}const again=prompt("Ulangi password baru:");if(again===null)return;if(password!==again){alert("Konfirmasi password tidak sama.");return}reset.disabled=true;try{const result=await api("/api/admin/users/"+encodeURIComponent(u.id)+"/password",{method:"POST",body:JSON.stringify({password})});alert(result.message||"Password berhasil direset.")}catch(e){alert(e.message)}finally{reset.disabled=false}};
    const remove=document.createElement("button");remove.type="button";remove.className="danger";remove.textContent="Hapus akun";remove.disabled=u.id===me.id;
    remove.onclick=async()=>{if(!confirm("Hapus akun "+u.name+"? Tindakan ini permanen dan hanya bisa dilakukan jika akun belum memiliki riwayat order."))return;remove.disabled=true;try{await api("/api/admin/users/"+encodeURIComponent(u.id),{method:"DELETE"});await loadUsers()}catch(e){alert(e.message);remove.disabled=false}};
-   actions.append(toggle,reset,remove);el.append(head,info,actions);root.append(el)
+   actions.append(toggle,reset,remove);const actionCell=document.createElement("td");actionCell.append(actions);el.append(nameCell,emailCell,phoneCell,roleCell,statusCell,actionCell);root.querySelector("tbody").append(el)
   })
  }catch(e){$("#userList").textContent=e.message}
 }
-document.querySelectorAll(".user-role-tab").forEach(button=>button.onclick=()=>{activeUserRole=button.dataset.role;document.querySelectorAll(".user-role-tab").forEach(x=>x.classList.toggle("active",x===button));$("#userRoleInput").value=activeUserRole;$("#userFormTitle").textContent="Tambah "+({ADMIN:"Admin",COURIER:"Kurir",CUSTOMER:"Customer"}[activeUserRole]);$("#createUserButton").textContent="Buat "+({ADMIN:"Admin",COURIER:"Kurir",CUSTOMER:"Customer"}[activeUserRole]);loadUsers()});
+document.querySelectorAll(".user-role-tab").forEach(button=>button.onclick=()=>{activeUserRole=button.dataset.role;document.querySelectorAll(".user-role-tab").forEach(x=>x.classList.toggle("active",x===button));$("#userRoleInput").value=activeUserRole;$("#userFormTitle").textContent="Add "+({ADMIN:"Admin",COURIER:"Courier",CUSTOMER:"Customer"}[activeUserRole]);$("#createUserButton").textContent="Create "+({ADMIN:"Admin",COURIER:"Courier",CUSTOMER:"Customer"}[activeUserRole]);loadUsers()});
 $("#userForm").onsubmit=async e=>{e.preventDefault();const msg=$("#userMessage"),v=Object.fromEntries(new FormData(e.target));v.role=activeUserRole;msg.textContent="";try{await api("/api/admin/users",{method:"POST",body:JSON.stringify(v)});e.target.reset();$("#userRoleInput").value=activeUserRole;msg.textContent=({ADMIN:"Admin",COURIER:"Kurir",CUSTOMER:"Customer"}[activeUserRole])+" berhasil dibuat.";await loadUsers()}catch(x){msg.textContent=x.message}};
 $("#refreshUsers").onclick=loadUsers;
+$("#addUserButton").onclick=()=>{$("#userForm").hidden=false;$("#userForm").scrollIntoView({behavior:"smooth",block:"start"})};
+$("#cancelUserForm").onclick=()=>{$("#userForm").hidden=true;$("#userForm").reset();$("#userRoleInput").value=activeUserRole;$("#userMessage").textContent=""};
+$("#toggleExport").onclick=()=>{const panel=$("#exportPanel");panel.hidden=!panel.hidden;$("#toggleExport").textContent=panel.hidden?"Export Orders":"Close Export"};
 async function loadPublicPricing(){try{const d=await api("/api/pricing");publicPricing={};(d.rules||[]).forEach(r=>publicPricing[r.service_type]=r);updateFare()}catch{}}
 async function loadPricing(){
  try{
