@@ -346,6 +346,11 @@ if(assignMatch&&r.method==="PATCH"){
  ]);
  return json({ok:true,status:"ON_TRIP"});
 }
+if(p==="/api/pricing"&&r.method==="GET"){
+ const d=await env.DB.prepare("SELECT service_type,rate_per_km,minimum_price FROM pricing_rules WHERE active=1 ORDER BY effective_from DESC").all();
+ const latest={};for(const row of d.results||[])if(!latest[row.service_type])latest[row.service_type]=row;
+ return json({rules:Object.values(latest)});
+}
 if(p==="/api/admin/pricing"&&r.method==="GET"){
  if(user.role!=="ADMIN")return json({error:"Hanya admin"},403);
  const d=await env.DB.prepare("SELECT id,service_type,rate_per_km,courier_rate_per_km,minimum_price,effective_from FROM pricing_rules WHERE active=1 ORDER BY service_type").all();
