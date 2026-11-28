@@ -1,0 +1,37 @@
+name: Validate HGDelivery
+on:
+  pull_request:
+    branches: [rebuild/cloudflare-v1, rebuild/workflow-v2]
+  push:
+    branches: [hardening/security-v1, rebuild/cloudflare-v1, rebuild/workflow-v2]
+jobs:
+  syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Check Worker syntax
+        run: node --check worker/index.js
+      - name: Check frontend syntax
+        run: node --check public/app.js
+      - name: Validate all D1 migrations in SQLite
+        run: |
+          python - <<'PY'
+          import sqlite3
+          from pathlib import Path
+
+          db = sqlite3.connect(":memory:")
+          migrations = sorted(Path("database/migrations").glob("[0-9][0-9][0-9][0-9]_*.sql"))
+          if not migrations:
+              raise SystemExit("No SQL migrations found")
+          for migration in migrations:
+              print(f"Applying {migration}")
+              db.executescript(migration.read_text(encoding="utf-8"))
+          columns = {row[1] for row in db.execute("PRAGMA table_info(orders)")}
+          assert "payment_status" in columns, "orders.payment_status missing"
+          indexes = {row[1] for row in db.execute("PRAGMA index_list(order_payments)")}
+          assert "idx_order_single_paid_payment" in indexes, "paid-payment uniqueness index missing"
+          print(f"Validated {len(migrations)} migrations successfully")
+          PY

@@ -1,0 +1,77 @@
+# Admin and courier management test plan
+
+Run only in a disposable test environment with non-production accounts and orders.
+
+## Admin user management
+1. Sign in as an active ADMIN.
+2. Open Pengguna and create one CUSTOMER and one COURIER with unique emails and passwords of at least 12 characters.
+3. Confirm both accounts appear with the correct roles.
+4. Attempt to create a duplicate email; expect a conflict response.
+5. Deactivate the test customer; confirm it cannot sign in.
+6. Reactivate the customer and confirm sign-in works.
+7. Confirm a non-admin cannot read or create users.
+8. Confirm the currently signed-in admin cannot deactivate their own account, and the last active admin cannot be deactivated.
+
+## Courier assignment
+1. Create a test order as a customer.
+2. Sign in as ADMIN and assign an active COURIER.
+3. Confirm the order appears in that courier's order list.
+4. Confirm a customer or courier cannot assign a courier.
+5. Confirm an inactive or CUSTOMER account cannot be assigned.
+6. Confirm the assignment creates an order event and an audit log entry.
+
+## Important
+- Syntax checks do not replace these runtime tests.
+- Do not use real customer data, real delivery addresses, or real proof photos during validation.
+- Verify all role boundaries and error cases before using the feature operationally.
+
+## Order status workflow
+1. Admin moves an assigned test order to PROCESS.
+2. The assigned courier signs in and moves it to ON_TRIP.
+3. The same courier moves it to TRIP_COMPLETED.
+4. Admin verifies the delivery and moves it to SUCCESS.
+5. Confirm another courier cannot update the order, and a courier cannot set administrative statuses.
+6. Confirm each change appears in order events and audit logs.
+
+## Pricing configuration
+1. Sign in as ADMIN and open Tarif.
+2. Save active rates for HG Ride Motor, HG Ride Mobil, and HG Send.
+3. Confirm the active values are displayed after refresh.
+4. Confirm a non-admin cannot read or change pricing.
+5. Confirm each update is recorded in the audit log.
+6. Do not treat the configured rates as a customer quote yet: automatic route-distance calculation and order-price enforcement are not implemented.
+
+## Dashboard summary
+1. Sign in as ADMIN and confirm six metric cards load.
+2. Create a test order and refresh the page; confirm total orders increases.
+3. Move a test order through statuses and confirm waiting, active, and completed counts reflect the status groups.
+4. Confirm a non-admin cannot access the admin dashboard endpoint.
+
+## Status transition restrictions
+1. Confirm NEW_ORDER can move to VERIFIED or CANCEL only.
+2. Confirm VERIFIED can move to PROCESS, PENDING_PAYMENT, CANCEL, or RESCHEDULE.
+3. Confirm PROCESS can move to ON_TRIP, CANCEL, or RESCHEDULE.
+4. Confirm ON_TRIP can move to TRIP_COMPLETED or CANCEL.
+5. Confirm TRIP_COMPLETED can move to SUCCESS only.
+6. Confirm SUCCESS and CANCEL are terminal and cannot be changed.
+7. Confirm completed_at and cancelled_at are cleared or set correctly when statuses change.
+
+## Order proof photos
+1. Assign a test order to a test COURIER.
+2. Sign in as the assigned courier and upload a small JPG, PNG, or WebP proof photo.
+3. Confirm the photo appears in the order's proof list and opens only for the customer, assigned courier, or admin.
+4. Confirm another courier and an unrelated customer receive an authorization error.
+5. Try a file with a renamed extension or mismatched MIME type; expect rejection.
+6. Confirm uploads larger than 8 MB and unsupported formats are rejected.
+7. Confirm the upload creates an ORDER_PROOF_UPLOADED audit entry.
+8. Confirm an unassigned courier cannot upload a proof.
+
+## Manual payment recording
+1. Sign in as ADMIN and open an unpaid test order.
+2. Enter the amount actually received, choose CASH, BANK_TRANSFER, QRIS, or OTHER, and optionally enter a transaction reference.
+3. Confirm the order payment status becomes PAID and the payment record appears for the customer and admin.
+4. Confirm a non-admin cannot create payment records or read another customer's payment history.
+5. Attempt to record payment twice; the second attempt must be rejected.
+6. Confirm invalid amounts, methods, and oversized references are rejected.
+7. Confirm the PAYMENT_RECORDED audit entry exists.
+8. This is manual bookkeeping only: it does not collect money, verify bank transfers automatically, integrate a payment gateway, or calculate the amount due. Admin must verify the actual receipt before recording it.
