@@ -1,9 +1,9 @@
 name: Validate HGDelivery
 on:
   pull_request:
-    branches: [rebuild/cloudflare-v1]
+    branches: [rebuild/cloudflare-v1, rebuild/workflow-v2]
   push:
-    branches: [hardening/security-v1, rebuild/cloudflare-v1]
+    branches: [hardening/security-v1, rebuild/cloudflare-v1, rebuild/workflow-v2]
 jobs:
   syntax:
     runs-on: ubuntu-latest
