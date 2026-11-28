@@ -241,11 +241,16 @@ if(orderPaymentStatusMatch&&r.method==="PATCH"){
 }
 if(p==="/api/admin/orders/export"&&r.method==="GET"){
  if(user.role!=="ADMIN")return json({error:"Hanya admin"},403);
- const from=u.searchParams.get("from"),to=u.searchParams.get("to");
+ const from=u.searchParams.get("from"),to=u.searchParams.get("to"),type=u.searchParams.get("type"),status=u.searchParams.get("status");
+ const validStatuses=["NEW_ORDER","VERIFIED","PROCESS","ON_TRIP","TRIP_COMPLETED","PENDING_PAYMENT","SUCCESS","RESCHEDULE","CANCEL"];
+ if(type&&!["RIDE","SEND"].includes(type))return json({error:"Filter layanan tidak valid."},400);
+ if(status&&!validStatuses.includes(status))return json({error:"Filter status tidak valid."},400);
  if((from&&!/^\d{4}-\d{2}-\d{2}$/.test(from))||(to&&!/^\d{4}-\d{2}-\d{2}$/.test(to))||(from&&to&&from>to))return json({error:"Rentang tanggal tidak valid."},400);
  const clauses=[],args=[];
  if(from){clauses.push("date(o.created_at)>=date(?)");args.push(from)}
  if(to){clauses.push("date(o.created_at)<=date(?)");args.push(to)}
+ if(type){clauses.push("o.type=?");args.push(type)}
+ if(status){clauses.push("o.status=?");args.push(status)}
  const where=clauses.length?" WHERE "+clauses.join(" AND "):"";
  const data=await env.DB.prepare("SELECT o.order_code,o.type,o.created_at,o.pickup_datetime,o.customer_name,o.customer_phone,o.customer_email,o.pickup_label,o.destination_label,o.distance_km,o.vehicle,o.passenger_count,o.item_type,o.item_weight_kg,o.recipient_name,o.recipient_phone,o.delivery_speed,o.payment_method,o.total_payment,o.courier_share,o.company_share,o.courier_rate_per_km,o.customer_rate_per_km,o.status,o.payment_status,c.name courier_name,c.phone courier_phone,o.notes FROM orders o LEFT JOIN users c ON c.id=o.courier_id"+where+" ORDER BY o.created_at DESC").bind(...args).all();
  const cols=["order_code","type","created_at","pickup_datetime","customer_name","customer_phone","customer_email","pickup_label","destination_label","distance_km","vehicle","passenger_count","item_type","item_weight_kg","recipient_name","recipient_phone","delivery_speed","payment_method","total_payment","courier_share","company_share","courier_rate_per_km","customer_rate_per_km","status","payment_status","courier_name","courier_phone","notes"];
@@ -343,12 +348,12 @@ if(assignMatch&&r.method==="PATCH"){
  if(!courier)return json({error:"Pilih akun kurir aktif yang valid"},400);
  const order=await env.DB.prepare("SELECT id,courier_id,status FROM orders WHERE id=?").bind(assignMatch[1]).first();
  if(!order)return json({error:"Order tidak ditemukan"},404);
- if(order.status==="SUCCESS"||order.status==="CANCEL")return json({error:"Order final tidak dapat diubah."},409);
- if(order.status!=="VERIFIED")return json({error:"Verifikasi order terlebih dahulu sebelum memilih kurir."},409);
+ if(!["VERIFIED","RESCHEDULE","ON_TRIP"].includes(order.status))return json({error:"Kurir hanya dapat ditugaskan pada order yang sudah diverifikasi dan belum menyelesaikan trip."},409);
+ const previous=order.status;
  await env.DB.batch([
-  env.DB.prepare("UPDATE orders SET courier_id=?,status='ON_TRIP',assigned_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='VERIFIED'").bind(courier.id,order.id),
-  env.DB.prepare("INSERT INTO order_events(id,order_id,actor_id,from_status,to_status,note) VALUES(?,?,?,'VERIFIED','ON_TRIP',?)").bind(uid(),order.id,user.id,"Kurir ditugaskan: "+courier.id),
-  env.DB.prepare("INSERT INTO audit_logs(id,actor_id,action,entity_type,entity_id,detail) VALUES(?,?,'COURIER_ASSIGNED','ORDER',?,?)").bind(uid(),user.id,order.id,courier.id)
+  env.DB.prepare("UPDATE orders SET courier_id=?,status='ON_TRIP',assigned_at=CASE WHEN status IN ('VERIFIED','RESCHEDULE') THEN CURRENT_TIMESTAMP ELSE assigned_at END,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status=?").bind(courier.id,order.id,previous),
+  env.DB.prepare("INSERT INTO order_events(id,order_id,actor_id,from_status,to_status,note) VALUES(?,?,?,?,?,?)").bind(uid(),order.id,user.id,previous,"ON_TRIP",previous==="ON_TRIP"?"Kurir diganti: "+courier.id:"Kurir ditugaskan: "+courier.id),
+  env.DB.prepare("INSERT INTO audit_logs(id,actor_id,action,entity_type,entity_id,detail) VALUES(?,?,?,?,?,?)").bind(uid(),user.id,previous==="ON_TRIP"?"COURIER_REASSIGNED":"COURIER_ASSIGNED","ORDER",order.id,courier.id)
  ]);
  return json({ok:true,status:"ON_TRIP"});
 }

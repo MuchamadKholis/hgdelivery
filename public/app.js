@@ -12,13 +12,10 @@ async function loadRoleDashboard(){
 }
 async function exportOrders(){
  const msg=$("#exportMessage");msg.textContent="Menyiapkan file…";
- const from=$("#exportDateFrom").value,to=$("#exportDateTo").value;
- const params=new URLSearchParams();if(from)params.set("from",from);if(to)params.set("to",to);
- try{
-  const res=await fetch("/api/admin/orders/export?"+params.toString(),{credentials:"same-origin"});
-  if(!res.ok){const data=await res.json().catch(()=>({}));throw Error(data.error||"Export gagal")}
-  const blob=await res.blob(),url=URL.createObjectURL(blob),a=document.createElement("a");
-  a.href=url;a.download="HGDelivery_Orders_"+(from||"semua")+"_"+(to||"semua")+".csv";document.body.append(a);a.click();a.remove();URL.revokeObjectURL(url);msg.textContent="Export berhasil dibuat.";
+ const from=$("#filterDateFrom").value,to=$("#filterDateTo").value,service=$("#filterService").value,status=$("#filterStatus").value;
+ const params=new URLSearchParams();if(from)params.set("from",from);if(to)params.set("to",to);if(service!=="ALL")params.set("type",service);if(status!=="ALL")params.set("status",status);
+ try{const res=await fetch("/api/admin/orders/export?"+params.toString(),{credentials:"same-origin"});if(!res.ok){const data=await res.json().catch(()=>({}));throw Error(data.error||"Export gagal")}
+ const blob=await res.blob(),url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download="HGDelivery_Orders_"+(from||"all")+"_"+(to||"all")+".csv";document.body.append(a);a.click();a.remove();URL.revokeObjectURL(url);msg.textContent="Export berhasil diunduh.";
  }catch(e){msg.textContent=e.message}
 }
 async function loadDashboard(){const root=$("#dashboardMetrics");try{const d=await api("/api/admin/dashboard"),m=d.metrics;root.replaceChildren();const items=[["Total Orders",m.total_orders],["Needs Review",m.waiting_orders],["In Progress",m.active_orders],["Completed",m.completed_orders],["Active Couriers",m.active_couriers],["Active Customers",m.active_customers]];items.forEach(([label,value])=>{const card=document.createElement("div");card.className="metric";const name=document.createElement("small");name.textContent=label;const number=document.createElement("strong");number.textContent=Number(value||0).toLocaleString("id-ID");card.append(name,number);root.append(card)})}catch(e){root.textContent="Ringkasan dashboard belum dapat dimuat: "+e.message}}
@@ -65,91 +62,54 @@ async function loadSummary(){
   items.forEach(([label,value])=>{const el=document.createElement("article");el.className="metric";const title=document.createElement("small");title.textContent=label;const number=document.createElement("strong");number.textContent=Number(value).toLocaleString("id-ID");el.append(title,number);root.append(el)});
  }catch(e){$("#dashboardSummary").textContent=e.message}
 }
+let openOrderIds=new Set();
+let ordersRenderSequence=0;
 async function loadOrders(){
+ const renderId=++ordersRenderSequence,root=$("#orderList");
+ [...root.querySelectorAll(".order-disclosure[open]")].forEach(x=>openOrderIds.add(x.dataset.orderId));
  try{
-  const d=await api("/api/orders"),root=$("#orderList");root.replaceChildren();let orders=d.orders;const sf=$("#filterService")?.value||"ALL",st=$("#filterStatus")?.value||"ALL",from=$("#filterDateFrom")?.value||"",to=$("#filterDateTo")?.value||"";if(sf!=="ALL")orders=orders.filter(o=>o.type===sf);if(st!=="ALL")orders=orders.filter(o=>o.status===st);if(from)orders=orders.filter(o=>String(o.created_at||"").slice(0,10)>=from);if(to)orders=orders.filter(o=>String(o.created_at||"").slice(0,10)<=to);
-  if(!orders.length){root.innerHTML='<div class="empty">Belum ada order.</div>';return}
-  let couriers=[];
-  if(me.role==="ADMIN"){const ud=await api("/api/admin/users");couriers=ud.users.filter(x=>x.role==="COURIER"&&x.active)}
+  const d=await api("/api/orders");if(renderId!==ordersRenderSequence)return;
+  let orders=d.orders||[];const sf=$("#filterService")?.value||"ALL",st=$("#filterStatus")?.value||"ALL",from=$("#filterDateFrom")?.value||"",to=$("#filterDateTo")?.value||"";
+  if(sf!=="ALL")orders=orders.filter(o=>o.type===sf);if(st!=="ALL")orders=orders.filter(o=>o.status===st);if(from)orders=orders.filter(o=>String(o.created_at||"").slice(0,10)>=from);if(to)orders=orders.filter(o=>String(o.created_at||"").slice(0,10)<=to);
+  let couriers=[];if(me.role==="ADMIN"){const ud=await api("/api/admin/users");couriers=(ud.users||[]).filter(x=>x.role==="COURIER"&&x.active)}if(renderId!==ordersRenderSequence)return;
+  root.replaceChildren();if(!orders.length){root.innerHTML='<div class="empty">Belum ada order untuk filter ini.</div>';return}
+  const labels={NEW_ORDER:"NEW ORDER",VERIFIED:"VERIFIED",RESCHEDULE:"RESCHEDULED",ON_TRIP:"ON TRIP",TRIP_COMPLETED:"TRIP COMPLETED",PENDING_PAYMENT:"PENDING PAYMENT",SUCCESS:"SUCCESS",CANCEL:"CANCELLED",PROCESS:"IN PROGRESS"};
+  const button=(parent,label,cls,fn)=>{const b=document.createElement("button");b.type="button";b.className=cls||"secondary";b.textContent=label;b.onclick=e=>fn(b,e);parent.append(b);return b};
+  const line=parent=>{const x=document.createElement("div");x.className="assignline";parent.append(x);return x};
+  const select=(parent,items,label)=>{const s=document.createElement("select");s.setAttribute("aria-label",label);items.forEach(([v,t])=>{const o=document.createElement("option");o.value=v;o.textContent=t;s.append(o)});parent.append(s);return s};
+  const patch=async(btn,path,payload)=>{btn.disabled=true;try{await api(path,{method:"PATCH",body:JSON.stringify(payload)});await loadOrders()}catch(e){alert(e.message);btn.disabled=false}};
   orders.forEach(o=>{
-   const el=document.createElement("article");el.className="order";
-   const h=document.createElement("div");h.className="orderhead";
-   const b=document.createElement("b");b.textContent=o.order_code+" · "+o.type;
-   const s=document.createElement("span");s.className="pill";s.textContent=o.status.replaceAll("_"," ");h.append(b,s);
-   const paymentLine=document.createElement("p");paymentLine.className="payment-status";paymentLine.textContent="Pembayaran: "+(o.payment_status==="PAID"?"Verified":o.payment_status==="PENDING"?"Pending":"Belum diverifikasi");el.append(paymentLine);
-   const people=document.createElement("p");people.textContent=(o.customer_name||"Pemesan")+" ("+(o.customer_phone||"-")+")"+(o.recipient_name?" · Penerima: "+o.recipient_name+" ("+(o.recipient_phone||"-")+")":"");const p=document.createElement("p");p.textContent="Dari: "+o.pickup_label+" → Ke: "+o.destination_label;const details=document.createElement("p");details.textContent="Jarak: "+Number(o.distance_km||0).toFixed(1)+" km · Total bayar: "+rupiah(o.total_payment||o.price||0)+" ("+(o.payment_method||"Individual")+")"+(me.role==="ADMIN"?" · Argo kurir: "+rupiah(o.courier_share||0)+" · Perusahaan: "+rupiah(o.company_share||0):"");const courier=document.createElement("p");courier.textContent="Kurir: "+(o.courier_name||"Belum ditugaskan")+" · Bukti foto tersedia di bagian bawah order";const t=document.createElement("small");t.textContent="Jadwal: "+(o.pickup_datetime||"-")+" · Dibuat: "+new Date(o.created_at+"Z").toLocaleString("id-ID");el.append(h,people,p,details,courier,t);
-   const waLines=o.type==="RIDE"?["*HGRIDE — DETAIL ORDER*","Order No: *"+o.order_code+"*","Customer: "+(o.customer_name||"")+" ("+(o.customer_phone||"-")+")","Jadwal: "+(o.pickup_datetime||"-"),"Kendaraan: "+(o.vehicle||"Motor")+" ("+(o.passenger_count||1)+" org)","Jemput: "+o.pickup_label,"Tujuan: "+o.destination_label,"Jarak: "+o.distance_km+" km","Total Argo: *"+rupiah(o.total_payment||o.price)+"* ("+(o.payment_method||"Individual")+")",o.notes?"Catatan: "+o.notes:""]:["*HGSEND — DETAIL ORDER*","Order No: *"+o.order_code+"*","Pengirim: "+(o.customer_name||"")+" ("+(o.customer_phone||"-")+")","Penerima: "+(o.recipient_name||"-")+" ("+(o.recipient_phone||"-")+")","Barang: "+(o.item_type||o.item_description||"-")+" ("+(o.item_weight_kg||"-")+" kg) · "+(o.delivery_speed||"SAME_DAY"),"Jadwal: "+(o.pickup_datetime||"-"),"Jemput: "+o.pickup_label,"Tujuan: "+o.destination_label,"Jarak: "+o.distance_km+" km","Total Argo: *"+rupiah(o.total_payment||o.price)+"* ("+(o.payment_method||"Individual")+")",o.notes?"Catatan: "+o.notes:""];
-   const waText=waLines.filter(Boolean).join("\n"),waActions=document.createElement("div");waActions.className="assignline";
-   const copyWa=document.createElement("button");copyWa.type="button";copyWa.className="secondary";copyWa.textContent="Copy WhatsApp Text";copyWa.onclick=async()=>{try{await navigator.clipboard.writeText(waText);copyWa.textContent="Copied"}catch{alert("Browser tidak mengizinkan salin otomatis.")}};
-   const sendWa=document.createElement("a");sendWa.className="secondary";sendWa.textContent="Send WhatsApp";sendWa.href="https://wa.me/?text="+encodeURIComponent(waText);sendWa.target="_blank";sendWa.rel="noopener";
-   waActions.append(copyWa,sendWa);el.append(waActions);
+   const card=document.createElement("article");card.className="order order-card";
+   const head=document.createElement("div");head.className="orderhead";const code=document.createElement("b");code.textContent=o.order_code;const badge=document.createElement("span");badge.className="pill status-"+String(o.status).toLowerCase();badge.textContent=labels[o.status]||o.status;head.append(code,badge);card.append(head);
+   const people=document.createElement("div");people.className="order-people";
+   const c=document.createElement("div");c.innerHTML="<small>CUSTOMER</small>";const cn=document.createElement("b");cn.textContent=o.customer_name||"—";c.append(cn);
+   const k=document.createElement("div");k.innerHTML="<small>COURIER</small>";const kn=document.createElement("b");kn.textContent=o.courier_name||"Belum ditugaskan";k.append(kn);people.append(c,k);card.append(people);
+   const details=document.createElement("details");details.className="order-disclosure";details.dataset.orderId=o.id;details.open=openOrderIds.has(o.id);details.addEventListener("toggle",()=>{if(details.open)openOrderIds.add(o.id);else openOrderIds.delete(o.id)});
+   const sum=document.createElement("summary");sum.textContent="View Details & Actions";details.append(sum);
+   const body=document.createElement("div");body.className="order-detail-body";const grid=document.createElement("div");grid.className="order-info-grid";
+   const info=(name,value)=>{const x=document.createElement("div"),a=document.createElement("small"),b=document.createElement("span");a.textContent=name;b.textContent=value||"—";x.append(a,b);grid.append(x)};
+   info("Service",o.type==="RIDE"?"HG Ride":"HG Send");info("Schedule",o.pickup_datetime);info("Phone",o.customer_phone);info("Recipient",o.recipient_name);info("Pickup",o.pickup_label);info("Destination",o.destination_label);info("Distance",Number(o.distance_km||0).toFixed(1)+" km");info("Customer Fare",rupiah(o.total_payment||o.price||0));info("Payment Method",o.payment_method);info("Created",o.created_at?new Date(o.created_at+"Z").toLocaleString("id-ID"):"—");
+   if(me.role==="ADMIN"){info("Courier Share",rupiah(o.courier_share||0));info("Company Share",rupiah(o.company_share||0))}if(o.notes)info("Notes",o.notes);body.append(grid);
+   const waLines=o.type==="RIDE"?["*HGRIDE — DETAIL ORDER*","Order No: *"+o.order_code+"*","Customer: "+(o.customer_name||"")+" ("+(o.customer_phone||"-")+")","Jadwal: "+(o.pickup_datetime||"-"),"Kendaraan: "+(o.vehicle||"Motor")+" ("+(o.passenger_count||1)+" org)","Jemput: "+o.pickup_label,"Tujuan: "+o.destination_label,"Jarak: "+o.distance_km+" km","Total Argo: *"+rupiah(o.total_payment||o.price)+"* ("+(o.payment_method||"Individual")+")",o.notes?"Catatan: "+o.notes:""]:["*HGSEND — DETAIL ORDER*","Pengirim: "+(o.customer_name||"")+" ("+(o.customer_phone||"-")+")","Penerima: "+(o.recipient_name||"-")+" ("+(o.recipient_phone||"-")+")","Barang: "+(o.item_type||"-")+" ("+(o.item_weight_kg||"-")+" kg)","Jemput: "+o.pickup_label,"Tujuan: "+o.destination_label,"Jadwal: "+(o.pickup_datetime||"-"),"Jarak: "+o.distance_km+" km","Total Argo: "+rupiah(o.total_payment||o.price||0)];
+   const wa=line(body);button(wa,"Copy WhatsApp Text","secondary",async b=>{try{await navigator.clipboard.writeText(waLines.filter(Boolean).join("\n"));b.textContent="Copied"}catch{alert("Tidak dapat menyalin teks.")}});
+   const send=document.createElement("a");send.className="secondary";send.textContent="Send WhatsApp";send.href="https://wa.me/?text="+encodeURIComponent(waLines.filter(Boolean).join("\n"));send.target="_blank";send.rel="noopener";wa.append(send);
    if(me.role==="ADMIN"){
-    const line=document.createElement("div");line.className="assignline";
-    const sel=document.createElement("select");sel.setAttribute("aria-label","Pilih kurir untuk "+o.order_code);
-    const empty=document.createElement("option");empty.value="";empty.textContent="Select active courier";sel.append(empty);
-    couriers.forEach(c=>{const op=document.createElement("option");op.value=c.id;op.textContent=c.name+" · "+c.email;if(c.id===o.courier_id)op.selected=true;sel.append(op)});
-    const btn=document.createElement("button");btn.type="button";btn.className="secondary";btn.textContent="Assign";
-    btn.onclick=async()=>{if(!sel.value){alert("Pilih kurir terlebih dahulu.");return}btn.disabled=true;try{await api("/api/orders/"+encodeURIComponent(o.id)+"/assign",{method:"PATCH",body:JSON.stringify({courierId:sel.value})});btn.textContent="Tersimpan"}catch(e){alert(e.message);btn.disabled=false}};
-    line.append(sel,btn);el.append(line)
+    if(o.status==="NEW_ORDER"){const panel=document.createElement("div");panel.className="action-panel";const title=document.createElement("b");title.textContent="Verify Order";panel.append(title);const row=line(panel);
+     button(row,"Verify","primary compact",b=>patch(b,"/api/orders/"+encodeURIComponent(o.id)+"/status",{status:"VERIFIED"}));
+     button(row,"Cancel","danger compact",b=>{if(confirm("Batalkan order "+o.order_code+"?"))patch(b,"/api/orders/"+encodeURIComponent(o.id)+"/status",{status:"CANCEL"})});body.append(panel)}
+    if(["VERIFIED","RESCHEDULE"].includes(o.status)){const panel=document.createElement("div");panel.className="action-panel";const title=document.createElement("b");title.textContent="Assign Courier";panel.append(title);const row=line(panel);const sel=select(row,[["","Pilih kurir aktif"],...couriers.map(x=>[x.id,x.name+" · "+(x.phone||x.email)])],"Pilih kurir");
+     button(row,"Submit & Start Trip","primary compact",b=>{if(!sel.value){alert("Pilih kurir.");return}patch(b,"/api/orders/"+encodeURIComponent(o.id)+"/assign",{courierId:sel.value})});body.append(panel)}
+    if(o.status==="ON_TRIP"){const panel=document.createElement("div");panel.className="action-panel";button(panel,"Change Courier","secondary compact",b=>{if(panel.querySelector("select"))return;const row=line(panel);const sel=select(row,[["","Pilih kurir aktif"],...couriers.map(x=>[x.id,x.name+" · "+(x.phone||x.email)])],"Ganti kurir");if(o.courier_id)sel.value=o.courier_id;button(row,"Submit Change","primary compact",x=>{if(!sel.value){alert("Pilih kurir.");return}patch(x,"/api/orders/"+encodeURIComponent(o.id)+"/assign",{courierId:sel.value})})});body.append(panel)}
+    if(["NEW_ORDER","VERIFIED","RESCHEDULE"].includes(o.status)){const panel=document.createElement("div");panel.className="action-panel";button(panel,"Change Status","secondary compact",b=>{if(panel.querySelector("select"))return;const row=line(panel);const sel=select(row,[["","Pilih tindakan"],["CANCEL","Cancel"],["RESCHEDULE","Reschedule"]],"Change Status");const date=document.createElement("input");date.type="datetime-local";date.value=(o.pickup_datetime||"").slice(0,16);date.hidden=true;row.append(date);sel.onchange=()=>date.hidden=sel.value!=="RESCHEDULE";button(row,"Submit","primary compact",x=>{if(sel.value==="RESCHEDULE"){if(!date.value){alert("Pilih jadwal.");return}patch(x,"/api/orders/"+encodeURIComponent(o.id)+"/reschedule",{pickup_datetime:date.value})}else if(sel.value==="CANCEL"&&confirm("Batalkan order?"))patch(x,"/api/orders/"+encodeURIComponent(o.id)+"/status",{status:"CANCEL"})})});body.append(panel)}
+    if(!["SUCCESS","CANCEL","TRIP_COMPLETED","PENDING_PAYMENT"].includes(o.status)){const panel=document.createElement("div");panel.className="action-panel";const title=document.createElement("b");title.textContent="Correct Distance";panel.append(title);const row=line(panel);const inp=document.createElement("input");inp.type="number";inp.min=".1";inp.step=".1";inp.value=Number(o.distance_km||0);row.append(inp);button(row,"Save Distance","secondary compact",b=>patch(b,"/api/orders/"+encodeURIComponent(o.id)+"/distance",{distance_km:Number(inp.value)}));body.append(panel)}
+    if(["TRIP_COMPLETED","PENDING_PAYMENT"].includes(o.status)){const panel=document.createElement("div");panel.className="action-panel";const title=document.createElement("b");title.textContent="Verify Payment";panel.append(title);const row=line(panel);const sel=select(row,[["VERIFIED","Verify"],["PENDING","Reject"]],"Payment result");button(row,"Submit","primary compact",b=>patch(b,"/api/orders/"+encodeURIComponent(o.id)+"/payment-status",{status:sel.value}));body.append(panel)}
    }
-   const proofBox=document.createElement("div");proofBox.className="proof-box";
-   const proofTitle=document.createElement("b");proofTitle.textContent="Photo Proof";proofBox.append(proofTitle);
-   const proofList=document.createElement("div");proofList.className="proof-list";proofList.textContent="Memuat bukti…";proofBox.append(proofList);
-   const renderProofs=proofs=>{proofList.replaceChildren();if(!proofs.length){proofList.textContent="Belum ada foto bukti.";return}proofs.forEach(pr=>{const link=document.createElement("a");link.href="/api/proofs/"+encodeURIComponent(pr.id);link.target="_blank";link.rel="noopener";link.textContent=pr.label+" · "+new Date(pr.created_at+"Z").toLocaleString("id-ID")+" · "+Math.ceil(pr.size_bytes/1024)+" KB";proofList.append(link)})};
-   fetch("/api/orders/"+encodeURIComponent(o.id)+"/proofs",{credentials:"same-origin"}).then(async res=>{const data=await res.json();if(!res.ok)throw Error(data.error||"Gagal memuat bukti");renderProofs(data.proofs)}).catch(err=>{proofList.textContent=err.message});
-   if(me.role==="COURIER"&&o.courier_id===me.id&&o.status==="ON_TRIP"){
-    const upload=document.createElement("div");upload.className="proof-upload";
-    const file=document.createElement("input");file.type="file";file.accept="image/jpeg,image/png,image/webp";file.capture="environment";file.setAttribute("aria-label","Pilih foto bukti");
-    const label=document.createElement("input");label.type="text";label.maxLength=80;label.placeholder="Keterangan foto (opsional)";
-    const send=document.createElement("button");send.type="button";send.className="secondary";send.textContent="Upload Proof";
-    send.onclick=async()=>{if(!file.files?.[0]){alert("Pilih foto terlebih dahulu.");return}send.disabled=true;const fd=new FormData();fd.append("file",file.files[0]);fd.append("label",label.value||"Bukti");try{const res=await fetch("/api/orders/"+encodeURIComponent(o.id)+"/proofs",{method:"POST",credentials:"same-origin",body:fd});const data=await res.json().catch(()=>({}));if(!res.ok)throw Error(data.error||"Upload gagal");file.value="";label.value="";send.textContent="Terkirim";const refresh=await fetch("/api/orders/"+encodeURIComponent(o.id)+"/proofs",{credentials:"same-origin"});const list=await refresh.json();renderProofs(list.proofs);await loadOrders()}catch(err){alert(err.message);send.disabled=false}};
-    upload.append(file,label,send);proofBox.append(upload);
-   }
-   el.append(proofBox);
-   if(me.role==="ADMIN"){
-    if(o.status==="VERIFIED"){
-     const line=document.createElement("div");line.className="assignline";
-     const sel=document.createElement("select");sel.setAttribute("aria-label","Pilih kurir "+o.order_code);
-     const empty=document.createElement("option");empty.value="";empty.textContent="Select active courier";sel.append(empty);
-     couriers.forEach(c=>{const op=document.createElement("option");op.value=c.id;op.textContent=c.name;if(c.id===o.courier_id)op.selected=true;sel.append(op)});
-     const btn=document.createElement("button");btn.type="button";btn.className="secondary";btn.textContent="Assign & Start Trip";
-     btn.onclick=async()=>{if(!sel.value){alert("Pilih kurir terlebih dahulu.");return}btn.disabled=true;try{await api("/api/orders/"+encodeURIComponent(o.id)+"/assign",{method:"PATCH",body:JSON.stringify({courierId:sel.value})});await loadOrders()}catch(e){alert(e.message);btn.disabled=false}};
-     line.append(sel,btn);el.append(line);
-    }
-    if(["NEW_ORDER","VERIFIED","RESCHEDULE"].includes(o.status)){
-     const line=document.createElement("div");line.className="assignline";
-     const date=document.createElement("input");date.type="datetime-local";date.value=(o.pickup_datetime||"").slice(0,16);date.setAttribute("aria-label","Jadwal baru "+o.order_code);
-     const res=document.createElement("button");res.type="button";res.className="secondary";res.textContent="Reschedule";
-     res.onclick=async()=>{if(!date.value){alert("Pilih tanggal dan jam baru.");return}res.disabled=true;try{await api("/api/orders/"+encodeURIComponent(o.id)+"/reschedule",{method:"PATCH",body:JSON.stringify({pickup_datetime:date.value})});await loadOrders()}catch(e){alert(e.message);res.disabled=false}};
-     line.append(date,res);el.append(line);
-    }
-    if(!["SUCCESS","CANCEL"].includes(o.status)){
-     const line=document.createElement("div");line.className="assignline";
-     const distance=document.createElement("input");distance.type="number";distance.min="0.1";distance.step="0.1";distance.value=Number(o.distance_km||0);distance.setAttribute("aria-label","Koreksi jarak km "+o.order_code);
-     const save=document.createElement("button");save.type="button";save.className="secondary";save.textContent="Save Distance";
-     save.onclick=async()=>{save.disabled=true;try{await api("/api/orders/"+encodeURIComponent(o.id)+"/distance",{method:"PATCH",body:JSON.stringify({distance_km:Number(distance.value)})});await loadOrders()}catch(e){alert(e.message);save.disabled=false}};
-     line.append(distance,save);el.append(line);
-    }
-    if(["TRIP_COMPLETED","PENDING_PAYMENT"].includes(o.status)){
-     const line=document.createElement("div");line.className="assignline";
-     const sel=document.createElement("select");[["VERIFIED","Pembayaran Verified"],["PENDING","Pembayaran Pending"]].forEach(([v,t])=>{const op=document.createElement("option");op.value=v;op.textContent=t;sel.append(op)});
-     const btn=document.createElement("button");btn.type="button";btn.className="secondary";btn.textContent="Save Payment Status";
-     btn.onclick=async()=>{btn.disabled=true;try{await api("/api/orders/"+encodeURIComponent(o.id)+"/payment-status",{method:"PATCH",body:JSON.stringify({status:sel.value})});await loadOrders()}catch(e){alert(e.message);btn.disabled=false}};
-     line.append(sel,btn);el.append(line);
-    }
-    const allowed={NEW_ORDER:["VERIFIED","CANCEL"],VERIFIED:["CANCEL"],RESCHEDULE:["VERIFIED","CANCEL"]}[o.status]||[];
-    if(allowed.length){
-     const line=document.createElement("div");line.className="assignline";const sel=document.createElement("select");
-     allowed.forEach(v=>{const op=document.createElement("option");op.value=v;op.textContent=v==="VERIFIED"?"Verified":v==="CANCEL"?"Cancel":v;sel.append(op)});
-     const btn=document.createElement("button");btn.type="button";btn.className="secondary";btn.textContent="Update Status";
-     btn.onclick=async()=>{btn.disabled=true;try{await api("/api/orders/"+encodeURIComponent(o.id)+"/status",{method:"PATCH",body:JSON.stringify({status:sel.value})});await loadOrders()}catch(e){alert(e.message);btn.disabled=false}};
-     line.append(sel,btn);el.append(line);
-    }
-   }
-   const summary=document.createElement("div");summary.className="order-quick-info";summary.textContent="Customer: "+(o.customer_name||"-")+"  ·  Courier: "+(o.courier_name||"Belum ditugaskan");
-   const disclosure=document.createElement("details");disclosure.className="order-disclosure";const summaryLabel=document.createElement("summary");summaryLabel.textContent="View Details & Actions";const body=document.createElement("div");body.className="order-detail-body";while(el.childNodes.length>1){body.append(el.childNodes[1])}disclosure.append(summaryLabel,body);el.append(summary,disclosure);root.append(el)
-  })
- }catch(e){$("#orderList").textContent=e.message}
+   const proof=document.createElement("div");proof.className="proof-box";const pt=document.createElement("b");pt.textContent="Photo Proof";proof.append(pt);const list=document.createElement("div");list.className="proof-list";list.textContent="Memuat bukti…";proof.append(list);body.append(proof);
+   fetch("/api/orders/"+encodeURIComponent(o.id)+"/proofs",{credentials:"same-origin"}).then(async r=>{const d=await r.json();if(!r.ok)throw Error(d.error||"Gagal memuat bukti");list.replaceChildren();if(!d.proofs?.length){list.textContent="Belum ada foto bukti.";return}d.proofs.forEach(pr=>{const item=document.createElement("div");item.className="proof-item";const url="/api/proofs/"+encodeURIComponent(pr.id),img=document.createElement("img");img.src=url;img.alt=pr.label||"Bukti pembayaran";img.loading="lazy";img.onclick=()=>{let dlg=document.querySelector("#proofLightbox");if(!dlg){dlg=document.createElement("dialog");dlg.id="proofLightbox";dlg.className="proof-lightbox";dlg.innerHTML='<form method="dialog"><button class="ghost">Close ✕</button></form><img alt="Foto bukti">';document.body.append(dlg);dlg.addEventListener("click",e=>{if(e.target===dlg)dlg.close()})}dlg.querySelector("img").src=url;dlg.showModal()};const cap=document.createElement("span");cap.textContent=(pr.label||"Bukti")+" · "+new Date(pr.created_at+"Z").toLocaleString("id-ID");item.append(img,cap);list.append(item)})}).catch(e=>{list.textContent=e.message});
+   if(me.role==="COURIER"&&o.courier_id===me.id&&o.status==="ON_TRIP"){const up=document.createElement("div");up.className="proof-upload";const file=document.createElement("input");file.type="file";file.accept="image/jpeg,image/png,image/webp";file.capture="environment";const label=document.createElement("input");label.placeholder="Keterangan foto (opsional)";label.maxLength=80;const send=button(up,"Upload Proof","primary compact",async b=>{if(!file.files?.[0]){alert("Pilih foto terlebih dahulu.");return}b.disabled=true;const fd=new FormData();fd.append("file",file.files[0]);fd.append("label",label.value||"Bukti");try{const r=await fetch("/api/orders/"+encodeURIComponent(o.id)+"/proofs",{method:"POST",credentials:"same-origin",body:fd});const d=await r.json().catch(()=>({}));if(!r.ok)throw Error(d.error||"Upload gagal");await loadOrders()}catch(e){alert(e.message);b.disabled=false}});up.prepend(file,label);proof.append(up)}
+   details.append(body);card.append(details);root.append(card);
+  });
+ }catch(e){if(renderId===ordersRenderSequence)root.textContent=e.message}
 }
 let activeUserRole="ADMIN";
 async function loadUsers(){
@@ -181,7 +141,7 @@ $("#userForm").onsubmit=async e=>{e.preventDefault();const msg=$("#userMessage")
 $("#refreshUsers").onclick=loadUsers;
 $("#addUserButton").onclick=()=>{$("#userForm").hidden=false;$("#userForm").scrollIntoView({behavior:"smooth",block:"start"})};
 $("#cancelUserForm").onclick=()=>{$("#userForm").hidden=true;$("#userForm").reset();$("#userRoleInput").value=activeUserRole;$("#userMessage").textContent=""};
-$("#toggleExport").onclick=()=>{const panel=$("#exportPanel");panel.hidden=!panel.hidden;$("#toggleExport").textContent=panel.hidden?"Export Orders":"Close Export"};
+
 async function loadPublicPricing(){try{const d=await api("/api/pricing");publicPricing={};(d.rules||[]).forEach(r=>publicPricing[r.service_type]=r);updateFare()}catch{}}
 async function loadPricing(){
  try{
@@ -192,4 +152,4 @@ async function loadPricing(){
 }
 $("#pricingForm").onsubmit=async e=>{e.preventDefault();const v=Object.fromEntries(new FormData(e.target));v.rate_per_km=Number(v.rate_per_km);v.courier_rate_per_km=Number(v.courier_rate_per_km);v.minimum_price=Number(v.minimum_price);const msg=$("#pricingMessage");msg.textContent="";try{await api("/api/admin/pricing",{method:"POST",body:JSON.stringify(v)});msg.textContent="Tarif berhasil disimpan.";loadPricing()}catch(x){msg.textContent=x.message}};
 $("#refreshPricing").onclick=loadPricing;
-$("#refresh").onclick=loadOrders;$("#filterService").onchange=loadOrders;$("#filterStatus").onchange=loadOrders;$("#filterDateFrom").onchange=loadOrders;$("#filterDateTo").onchange=loadOrders;$("#exportOrders").onclick=exportOrders;setInterval(()=>{if(me&&document.visibilityState==="visible")loadOrders()},30000);(async()=>{try{const d=await api("/api/auth/me");start(d.user)}catch{}})();
+$("#refresh").onclick=loadOrders;$("#filterService").onchange=loadOrders;$("#filterStatus").onchange=loadOrders;$("#filterDateFrom").onchange=loadOrders;$("#filterDateTo").onchange=loadOrders;$("#exportOrders").onclick=exportOrders;(async()=>{try{const d=await api("/api/auth/me");start(d.user)}catch{}})();
