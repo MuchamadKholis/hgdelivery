@@ -282,3 +282,97 @@ label small{display:block;font-weight:450;font-size:10px;line-height:1.5;margin-
  .assignline{align-items:stretch;flex-direction:column}
  .assignline button{width:100%}
 }
+
+
+/* Responsive layout correction: compact bottom navigation on narrow screens */
+@media screen and (max-width: 900px) {
+  html, body { min-width: 320px; overflow-x: hidden; }
+  #app.app-shell {
+    display: block !important;
+    min-height: calc(100dvh - 58px);
+    width: 100%;
+  }
+  #app.app-shell > .sidebar {
+    position: fixed !important;
+    inset: auto 0 0 0 !important;
+    display: flex !important;
+    flex-direction: row !important;
+    width: 100% !important;
+    height: calc(72px + env(safe-area-inset-bottom)) !important;
+    min-height: 0 !important;
+    padding: 6px 8px calc(6px + env(safe-area-inset-bottom)) !important;
+    margin: 0 !important;
+    z-index: 1200 !important;
+    overflow: visible !important;
+    background: #102d24 !important;
+    border-radius: 0 !important;
+  }
+  #app .sidebar-brand,
+  #app .sidebar-caption,
+  #app .sidebar-foot { display: none !important; }
+  #app .sidebar-nav,
+  #app .tabs.app-nav.sidebar-nav {
+    position: static !important;
+    inset: auto !important;
+    display: grid !important;
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+    align-items: stretch !important;
+    gap: 4px !important;
+    width: 100% !important;
+    height: 100% !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+  }
+  #app .sidebar-nav .tab {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+    align-self: stretch !important;
+    width: 100% !important;
+    height: 100% !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 5px 2px !important;
+    border: 0 !important;
+    border-radius: 10px !important;
+    color: #d6e5db !important;
+    background: transparent !important;
+    font-size: 10px !important;
+    line-height: 1.2 !important;
+    white-space: nowrap !important;
+  }
+  #app .sidebar-nav .tab span {
+    display: block !important;
+    width: auto !important;
+    font-size: 17px !important;
+    line-height: 1.1 !important;
+  }
+  #app .sidebar-nav .tab.active {
+    color: #183b2b !important;
+    background: #dff29f !important;
+    box-shadow: none !important;
+  }
+  #app .workspace {
+    display: block !important;
+    width: 100% !important;
+    max-width: none !important;
+    min-width: 0 !important;
+    margin: 0 !important;
+    padding: 18px 14px calc(104px + env(safe-area-inset-bottom)) !important;
+  }
+  #app .workspace-topline { margin-bottom: 14px; }
+  #app .welcome { padding: 18px; }
+  #app .booking-layout { display: block !important; }
+  #app .booking-map,
+  #app .booking-details { width: 100% !important; min-width: 0 !important; }
+}
+@media screen and (min-width: 901px) {
+  #app.app-shell { display: grid; grid-template-columns: 252px minmax(0, 1fr); }
+  #app.app-shell > .sidebar { position: sticky; top: 66px; width: auto; }
+}
