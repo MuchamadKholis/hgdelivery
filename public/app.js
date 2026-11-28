@@ -151,6 +151,13 @@ $("#addUserButton").onclick=()=>{$("#userForm").hidden=false;$("#userForm").scro
 $("#cancelUserForm").onclick=()=>{$("#userForm").hidden=true;$("#userForm").reset();$("#userRoleInput").value=activeUserRole;$("#userMessage").textContent=""};
 
 async function loadPublicPricing(){try{const d=await api("/api/pricing");publicPricing={};(d.rules||[]).forEach(r=>publicPricing[r.service_type]=r);updateFare()}catch{}}
+async function loadPresets(){
+ const root=$("#presetList");if(!root)return;
+ try{const d=await api("/api/admin/presets");root.replaceChildren();(d.locations||[]).forEach(loc=>{const card=document.createElement("article");card.className="order";const title=document.createElement("b");title.textContent=loc.name;const address=document.createElement("p");address.textContent=loc.address+" · "+Number(loc.lat).toFixed(6)+", "+Number(loc.lng).toFixed(6);const remove=document.createElement("button");remove.type="button";remove.className="danger compact";remove.textContent="Hapus";remove.onclick=async()=>{if(!confirm("Hapus preset "+loc.name+"?"))return;try{await api("/api/admin/presets/"+encodeURIComponent(loc.id),{method:"DELETE"});loadPresets()}catch(e){alert(e.message)}};card.append(title,address,remove);root.append(card)});if(!d.locations?.length)root.textContent="Belum ada preset lokasi."}catch(e){root.textContent=e.message}
+}
+$("#presetForm")?.addEventListener("submit",async e=>{e.preventDefault();const v=Object.fromEntries(new FormData(e.target));v.lat=Number(v.lat);v.lng=Number(v.lng);const msg=$("#presetMessage");msg.textContent="Menyimpan…";try{await api("/api/admin/presets",{method:"POST",body:JSON.stringify(v)});e.target.reset();msg.textContent="Preset lokasi berhasil ditambahkan.";await loadPresets()}catch(err){msg.textContent=err.message}});
+$("#refreshPresets")?.addEventListener("click",loadPresets);
+document.querySelectorAll("[data-settings-tab]").forEach(b=>b.addEventListener("click",()=>{document.querySelectorAll("[data-settings-tab]").forEach(x=>x.classList.toggle("active",x===b));$("#settingsPricing").hidden=b.dataset.settingsTab!=="pricing";$("#settingsPresets").hidden=b.dataset.settingsTab!=="presets";if(b.dataset.settingsTab==="presets")loadPresets()}));
 async function loadPricing(){
  try{
   const d=await api("/api/admin/pricing"),root=$("#pricingList");window.adminPricing={};(d.rules||[]).forEach(r=>window.adminPricing[r.service_type]=r);updateFare();root.replaceChildren();
