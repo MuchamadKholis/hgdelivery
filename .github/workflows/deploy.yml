@@ -4,6 +4,7 @@ on:
   push:
     branches: [main, rebuild/cloudflare-v1]
     paths:
+      - '.github/workflows/deploy.yml'
       - 'worker/**'
       - 'public/**'
       - 'database/**'
