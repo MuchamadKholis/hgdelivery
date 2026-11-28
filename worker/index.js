@@ -143,7 +143,9 @@ if(r.method==="POST"&&p==="/api/route/estimate"){
   try{const ors=await fetch("https://api.heigit.org/openrouteservice/v2/directions/driving-car/geojson",{method:"POST",headers:{"authorization":env.OPENROUTESERVICE_API_KEY.trim(),"content-type":"application/json"},body:JSON.stringify({coordinates:[[b.pickup_lng,b.pickup_lat],[b.destination_lng,b.destination_lat]],instructions:false})});const od=await ors.json().catch(()=>null),summary=od?.features?.[0]?.properties?.summary;if(ors.ok&&summary){routeData={distance:summary.distance,duration:summary.duration,geometry:od.features[0].geometry};provider="HeiGIT OpenRouteService"}else console.error("HEIGIT_ROUTE_FAILED",ors.status,String(od?.error?.message||od?.message||"").slice(0,240))}catch(e){console.error("HEIGIT_ROUTE_NETWORK_FAILED",String(e))}
  }
  if(!routeData)return json({error:"Rute jalan belum berhasil ditemukan. Geser pin jemput/tujuan ke jalan terdekat lalu coba lagi."},502);
- return json({distance_km:Math.round(routeData.distance/100)/10,duration_minutes:Math.max(1,Math.round(routeData.duration/60)),geometry:routeData.geometry,provider,profile:"driving-car",note:"Estimasi jarak mengikuti rute jalan. Jarak aktual dapat berubah sesuai akses jalan dan kondisi lapangan.",attribution:"© OpenStreetMap contributors"});
+ const quotedDistance=Math.round(routeData.distance/100)/10,quoteId=uid(),expires=new Date(Date.now()+20*60*1000).toISOString();
+ await env.DB.prepare("INSERT INTO route_quotes(id,user_id,pickup_lat,pickup_lng,destination_lat,destination_lng,distance_km,expires_at) VALUES(?,?,?,?,?,?,?,?)").bind(quoteId,user.id,b.pickup_lat,b.pickup_lng,b.destination_lat,b.destination_lng,quotedDistance,expires).run();
+ return json({quote_id:quoteId,distance_km:quotedDistance,duration_minutes:Math.max(1,Math.round(routeData.duration/60)),geometry:routeData.geometry,provider,profile:"driving-car",note:"Estimasi jarak mengikuti rute jalan. Jarak aktual dapat berubah sesuai akses jalan dan kondisi lapangan.",attribution:"© OpenStreetMap contributors"});
 }
 const proofUploadParts=p.split("/");
 if(proofUploadParts.length===5&&proofUploadParts[1]==="api"&&proofUploadParts[2]==="orders"&&proofUploadParts[4]==="proofs"&&r.method==="POST"){
@@ -196,6 +198,8 @@ if(orderPaymentsMatch&&r.method==="GET"){
  return json({payments:d.results});
 }
 if(orderPaymentsMatch&&r.method==="POST"){
+ return json({error:"Pencatatan nominal pembayaran sudah dinonaktifkan. Gunakan verifikasi status pembayaran."},410);
+ /* Legacy endpoint intentionally disabled: no nominal payment entry in HGDelivery. */
  if(user.role!=="ADMIN")return json({error:"Hanya admin yang dapat mencatat pembayaran"},403);
  const b=await body(r),order=await env.DB.prepare("SELECT id,payment_status FROM orders WHERE id=?").bind(orderPaymentsMatch[1]).first();
  if(!order)return json({error:"Order tidak ditemukan"},404);
@@ -358,13 +362,16 @@ if(p==="/api/admin/pricing"&&r.method==="POST"){
  ]);
  return json({ok:true,id},201);
 }
-if(p==="/api/orders"&&r.method==="GET"){let q=user.role==="ADMIN"?env.DB.prepare("SELECT o.*,c.name AS courier_name,c.phone AS courier_phone FROM orders o LEFT JOIN users c ON c.id=o.courier_id ORDER BY o.created_at DESC LIMIT 200"):user.role==="COURIER"?env.DB.prepare("SELECT o.*,c.name AS courier_name,c.phone AS courier_phone FROM orders o LEFT JOIN users c ON c.id=o.courier_id WHERE o.courier_id=? ORDER BY o.created_at DESC LIMIT 200").bind(user.id):env.DB.prepare("SELECT o.*,c.name AS courier_name,c.phone AS courier_phone FROM orders o LEFT JOIN users c ON c.id=o.courier_id WHERE o.customer_id=? ORDER BY o.created_at DESC LIMIT 100").bind(user.id);const d=await q.all();return json({orders:d.results})}
+if(p==="/api/orders"&&r.method==="GET"){let q=user.role==="ADMIN"?env.DB.prepare("SELECT o.*,c.name AS courier_name,c.phone AS courier_phone FROM orders o LEFT JOIN users c ON c.id=o.courier_id ORDER BY o.created_at DESC LIMIT 200"):user.role==="COURIER"?env.DB.prepare("SELECT o.*,c.name AS courier_name,c.phone AS courier_phone FROM orders o LEFT JOIN users c ON c.id=o.courier_id WHERE o.courier_id=? ORDER BY o.created_at DESC LIMIT 200").bind(user.id):env.DB.prepare("SELECT o.*,c.name AS courier_name,c.phone AS courier_phone FROM orders o LEFT JOIN users c ON c.id=o.courier_id WHERE o.customer_id=? ORDER BY o.created_at DESC LIMIT 100").bind(user.id);const d=await q.all();const orders=d.results||[];if(user.role!=="ADMIN")for(const o of orders){delete o.company_share;delete o.courier_share;delete o.courier_rate_per_km;delete o.customer_rate_per_km;delete o.created_by_id;}return json({orders})}
 if(p==="/api/orders"&&r.method==="POST"){
  if(user.role!=="CUSTOMER"&&user.role!=="ADMIN")return json({error:"Hanya customer yang dapat membuat order"},403);
  const b=await body(r),coords=[b?.pickup_lat,b?.pickup_lng,b?.destination_lat,b?.destination_lng];
  if(!b||!["RIDE","SEND"].includes(b.type)||!coords.every(v=>typeof v==="number"&&Number.isFinite(v))||Math.abs(b.pickup_lat)>90||Math.abs(b.destination_lat)>90||Math.abs(b.pickup_lng)>180||Math.abs(b.destination_lng)>180||typeof b.pickup_label!=="string"||typeof b.destination_label!=="string"||!b.pickup_label.trim()||!b.destination_label.trim()||b.pickup_label.length>500||b.destination_label.length>500)return json({error:"Data order dan lokasi belum lengkap atau tidak valid"},400);
- const distance=Number(b.distance_km);
- if(!Number.isFinite(distance)||distance<=0||distance>1000)return json({error:"Hitung jarak rute terlebih dahulu sebelum membuat order."},400);
+ const quote=typeof b.route_quote_id==="string"?await env.DB.prepare("SELECT * FROM route_quotes WHERE id=? AND user_id=? AND expires_at>?").bind(b.route_quote_id,user.id,new Date().toISOString()).first():null;
+ if(!quote)return json({error:"Estimasi rute sudah kedaluwarsa atau belum dihitung. Hitung ulang jarak sebelum membuat order."},409);
+ const same=(a,c)=>Math.abs(Number(a)-Number(c))<0.00001;
+ if(!same(quote.pickup_lat,b.pickup_lat)||!same(quote.pickup_lng,b.pickup_lng)||!same(quote.destination_lat,b.destination_lat)||!same(quote.destination_lng,b.destination_lng))return json({error:"Lokasi berubah. Hitung ulang jarak rute."},409);
+ const distance=Number(quote.distance_km);
  if(b.type==="SEND"&&(!String(b.item_type||"").trim()||!String(b.recipient_name||"").trim()||!String(b.recipient_phone||"").trim()))return json({error:"Jenis barang, nama penerima, dan nomor telepon penerima wajib diisi untuk HG Send."},400);
  if(b.type==="RIDE"&&(!Number.isInteger(Number(b.passenger_count))||Number(b.passenger_count)<1||Number(b.passenger_count)>4))return json({error:"Jumlah penumpang tidak valid."},400);
  if(typeof b.pickup_datetime!=="string"||!b.pickup_datetime.trim())return json({error:"Tanggal dan jam penjemputan wajib diisi."},400);
